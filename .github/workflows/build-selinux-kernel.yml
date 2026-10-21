@@ -27,16 +27,14 @@ jobs:
           cd linux-6.18.2
           
           if [ -f "../config-6.18.2-tinycore" ]; then
-            echo "Using downloaded config"
             cp ../config-6.18.2-tinycore .config
           else
-            echo "Config not found, generating defconfig..."
             make defconfig
           fi
           
           make oldconfig < /dev/null
 
-      - name: Enable SELinux in Kernel Config
+      - name: Enable SELinux and Disable Problematic Drivers
         run: |
           cd linux-6.18.2
           scripts/config --enable SECURITY_SELINUX
@@ -47,6 +45,12 @@ jobs:
           scripts/config --enable AUDIT
           scripts/config --enable EXT4_FS_SECURITY
           scripts/config --set-str DEFAULT_SECURITY "selinux"
+          
+          scripts/config --disable NVRAM
+          scripts/config --disable RTC
+          scripts/config --disable RTC_CLASS
+          scripts/config --disable RTC_HCTOSYS
+          scripts/config --disable RTC_SYSTOHC
           
           make olddefconfig
 
@@ -64,25 +68,20 @@ jobs:
           mkdir -p ../modules_out
           make INSTALL_MOD_PATH=../modules_out modules_install
           
-          # استخراج نسخه دقیق کرنل
           KERNEL_VERSION=$(make kernelrelease)
           echo "Kernel Version is: $KERNEL_VERSION"
           
-          # رفتن به پوشه ماژول‌ها
           cd ../modules_out/lib/modules/$KERNEL_VERSION
-          
-          # فشرده‌سازی ماژول‌ها
           find . -name "*.ko" -exec gzip -9 {} \;
           
-          # ساخت لینک‌های لازم برای Tiny Core
           ln -sf kernel kernel.tclocal
           
-          # بازگشت به پوشه modules_out برای اجرای depmod
           cd ..
           depmod -b ../.. $KERNEL_VERSION
           
-          # بسته‌بندی نهایی با tar (استفاده از نقطه به جای نام پوشه)
-          tar -czf ../../../../modules-selinux.tar.gz -C $KERNEL_VERSION .
+          cd $KERNEL_VERSION
+          
+          tar -czf ../../../../modules-selinux.tar.gz -C . .
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
