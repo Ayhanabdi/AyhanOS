@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -17,14 +17,16 @@ jobs:
 
       - name: Download Tiny Core Kernel Source and Config
         run: |
-          # دانلود سورس و کانفیگ از مسیر معتبر release_candidates
-          wget -q http://tinycorelinux.net/17.x/x86/release_candidates/kernel/linux-6.18.2.tar.xz
-          wget -q http://tinycorelinux.net/17.x/x86/release_candidates/kernel/config-6.18.2-tinycore
+          # استفاده از مسیر صحیح src/kernel طبق ویکی رسمی Tiny Core
+          wget -q http://tinycorelinux.net/17.x/x86/release/src/kernel/linux-6.18.2.tar.xz
+          wget -q http://tinycorelinux.net/17.x/x86/release/src/kernel/config-6.18.2-tinycore
+          
+          # بررسی موفقیت دانلود
+          ls -lh linux-6.18.2.tar.xz config-6.18.2-tinycore
           
           tar -xf linux-6.18.2.tar.xz
           cd linux-6.18.2
           cp ../config-6.18.2-tinycore .config
-          # این مرحله حیاتی است: پردازش کانفیگ برای رفع وابستگی‌ها
           make oldconfig < /dev/null
 
       - name: Enable SELinux in Kernel Config
@@ -39,7 +41,6 @@ jobs:
           scripts/config --enable EXT4_FS_SECURITY
           scripts/config --set-str DEFAULT_SECURITY "selinux"
           
-          # اعمال نهایی
           make olddefconfig
 
       - name: Compile Kernel
