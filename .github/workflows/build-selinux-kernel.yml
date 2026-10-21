@@ -13,18 +13,29 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc wget xz-utils
+          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc wget xz-utils cpio
 
       - name: Download Tiny Core Kernel Source and Config
         run: |
-          wget -q http://tinycorelinux.net/17.x/x86/release/src/kernel/linux-6.18.2.tar.xz
-          wget -q http://tinycorelinux.net/17.x/x86/release/src/kernel/config-6.18.2-tinycore
+          set -e
+          wget -q --timeout=60 --tries=3 http://repo.tinycorelinux.net/17.x/x86/release/src/kernel/linux-6.18.2-patched.tar.xz || \
+          wget -q --timeout=60 --tries=3 http://repo.tinycorelinux.net/17.x/x86/release/src/kernel/linux-6.18.2.tar.xz
           
-          ls -lh linux-6.18.2.tar.xz config-6.18.2-tinycore
+          wget -q --timeout=60 --tries=2 http://repo.tinycorelinux.net/17.x/x86/release/src/kernel/config-6.18.2-tinycore || \
+          wget -q --timeout=60 --tries=2 http://tinycorelinux.net/17.x/x86/release/src/kernel/config-6.18.2-tinycore || true
           
-          tar -xf linux-6.18.2.tar.xz
+          tar -xf linux-6.18.2*.tar.xz
           cd linux-6.18.2
-          cp ../config-6.18.2-tinycore .config
+          
+          if [ -f "../config-6.18.2-tinycore" ]; then
+            cp ../config-6.18.2-tinycore .config
+          elif [ -f ".config" ]; then
+            echo "Using existing .config from source"
+          else
+            echo "Error: No config file available"
+            exit 1
+          fi
+          
           make oldconfig < /dev/null
 
       - name: Enable SELinux in Kernel Config
@@ -51,6 +62,8 @@ jobs:
         run: |
           cd linux-6.18.2
           cp arch/x86/boot/bzImage ../vmlinuz-selinux
+          
+          mkdir -p ../modules_out
           make INSTALL_MOD_PATH=../modules_out modules_install
           
           cd ../modules_out/lib/modules/6.18.2-tinycore
@@ -60,7 +73,7 @@ jobs:
           depmod -b ../.. 6.18.2-tinycore
           
           cd 6.18.2-tinycore
-          ln -sf /usr/local/lib/modules/6.18.2-tinycore/kernel kernel.tclocal
+          ln -sf kernel kernel.tclocal
           
           cd ../..
           find . | cpio -o -H newc | gzip -9 > ../modules-selinux.gz
