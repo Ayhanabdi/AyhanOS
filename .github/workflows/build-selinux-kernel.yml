@@ -18,22 +18,22 @@ jobs:
       - name: Download Tiny Core Kernel Source and Config
         run: |
           set -e
+          # دانلود سورس
           wget -q --timeout=60 --tries=3 http://repo.tinycorelinux.net/17.x/x86/release/src/kernel/linux-6.18.2-patched.tar.xz || \
           wget -q --timeout=60 --tries=3 http://repo.tinycorelinux.net/17.x/x86/release/src/kernel/linux-6.18.2.tar.xz
           
-          wget -q --timeout=60 --tries=2 http://repo.tinycorelinux.net/17.x/x86/release/src/kernel/config-6.18.2-tinycore || \
-          wget -q --timeout=60 --tries=2 http://tinycorelinux.net/17.x/x86/release/src/kernel/config-6.18.2-tinycore || true
+          # تلاش برای دانلود کانفیگ (اگر نشد مهم نیست، چون در مرحله بعد کانفیگ می‌سازیم)
+          wget -q --timeout=60 --tries=2 http://repo.tinycorelinux.net/17.x/x86/release/src/kernel/config-6.18.2-tinycore || true
           
           tar -xf linux-6.18.2*.tar.xz
           cd linux-6.18.2
           
           if [ -f "../config-6.18.2-tinycore" ]; then
+            echo "استفاده از فایل کانفیگ دانلود شده"
             cp ../config-6.18.2-tinycore .config
-          elif [ -f ".config" ]; then
-            echo "Using existing .config from source"
           else
-            echo "Error: No config file available"
-            exit 1
+            echo "فایل کانفیگ پیدا نشد. ساخت کانفیگ پیش‌فرض (Defconfig)..."
+            make defconfig
           fi
           
           make oldconfig < /dev/null
@@ -66,17 +66,22 @@ jobs:
           mkdir -p ../modules_out
           make INSTALL_MOD_PATH=../modules_out modules_install
           
-          cd ../modules_out/lib/modules/6.18.2-tinycore
+          # پیدا کردن نسخه دقیق کرنل برای جلوگیری از خطای مسیر
+          KERNEL_VERSION=$(make kernelrelease)
+          echo "Kernel Version is: $KERNEL_VERSION"
+          
+          cd ../modules_out/lib/modules/$KERNEL_VERSION
           find . -name "*.ko" -exec gzip -9 {} \;
           
           cd ..
-          depmod -b ../.. 6.18.2-tinycore
+          depmod -b ../.. $KERNEL_VERSION
           
-          cd 6.18.2-tinycore
+          cd $KERNEL_VERSION
           ln -sf kernel kernel.tclocal
           
           cd ../..
-          find . | cpio -o -H newc | gzip -9 > ../modules-selinux.gz
+          # ساخت فایل tar.gz استاندارد
+          tar -czf ../modules-selinux.tar.gz -C $KERNEL_VERSION .
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -84,4 +89,4 @@ jobs:
           name: ayhanos-selinux-kernel
           path: |
             vmlinuz-selinux
-            modules-selinux.gz
+            modules-selinux.tar.gz
