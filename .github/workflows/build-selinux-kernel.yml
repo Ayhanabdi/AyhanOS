@@ -17,11 +17,9 @@ jobs:
 
       - name: Download Tiny Core Kernel Source and Config
         run: |
-          # استفاده از مسیر صحیح src/kernel طبق ویکی رسمی Tiny Core
           wget -q http://tinycorelinux.net/17.x/x86/release/src/kernel/linux-6.18.2.tar.xz
           wget -q http://tinycorelinux.net/17.x/x86/release/src/kernel/config-6.18.2-tinycore
           
-          # بررسی موفقیت دانلود
           ls -lh linux-6.18.2.tar.xz config-6.18.2-tinycore
           
           tar -xf linux-6.18.2.tar.xz
