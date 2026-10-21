@@ -18,21 +18,19 @@ jobs:
       - name: Download Tiny Core Kernel Source and Config
         run: |
           set -e
-          # دانلود سورس
           wget -q --timeout=60 --tries=3 http://repo.tinycorelinux.net/17.x/x86/release/src/kernel/linux-6.18.2-patched.tar.xz || \
           wget -q --timeout=60 --tries=3 http://repo.tinycorelinux.net/17.x/x86/release/src/kernel/linux-6.18.2.tar.xz
           
-          # تلاش برای دانلود کانفیگ (اگر نشد مهم نیست، چون در مرحله بعد کانفیگ می‌سازیم)
           wget -q --timeout=60 --tries=2 http://repo.tinycorelinux.net/17.x/x86/release/src/kernel/config-6.18.2-tinycore || true
           
           tar -xf linux-6.18.2*.tar.xz
           cd linux-6.18.2
           
           if [ -f "../config-6.18.2-tinycore" ]; then
-            echo "استفاده از فایل کانفیگ دانلود شده"
+            echo "Using downloaded config"
             cp ../config-6.18.2-tinycore .config
           else
-            echo "فایل کانفیگ پیدا نشد. ساخت کانفیگ پیش‌فرض (Defconfig)..."
+            echo "Config not found, generating defconfig..."
             make defconfig
           fi
           
@@ -66,22 +64,25 @@ jobs:
           mkdir -p ../modules_out
           make INSTALL_MOD_PATH=../modules_out modules_install
           
-          # پیدا کردن نسخه دقیق کرنل برای جلوگیری از خطای مسیر
+          # استخراج نسخه دقیق کرنل
           KERNEL_VERSION=$(make kernelrelease)
           echo "Kernel Version is: $KERNEL_VERSION"
           
+          # رفتن به پوشه ماژول‌ها
           cd ../modules_out/lib/modules/$KERNEL_VERSION
+          
+          # فشرده‌سازی ماژول‌ها
           find . -name "*.ko" -exec gzip -9 {} \;
           
+          # ساخت لینک‌های لازم برای Tiny Core
+          ln -sf kernel kernel.tclocal
+          
+          # بازگشت به پوشه modules_out برای اجرای depmod
           cd ..
           depmod -b ../.. $KERNEL_VERSION
           
-          cd $KERNEL_VERSION
-          ln -sf kernel kernel.tclocal
-          
-          cd ../..
-          # ساخت فایل tar.gz استاندارد
-          tar -czf ../modules-selinux.tar.gz -C $KERNEL_VERSION .
+          # بسته‌بندی نهایی با tar (استفاده از نقطه به جای نام پوشه)
+          tar -czf ../../../../modules-selinux.tar.gz -C $KERNEL_VERSION .
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
