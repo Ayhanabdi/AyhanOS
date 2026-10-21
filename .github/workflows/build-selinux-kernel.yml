@@ -1,0 +1,87 @@
+name: Build AyhanOS Kernel with SELinux
+
+on:
+  workflow_dispatch: # این گزینه به شما اجازه می‌دهد دستی اجرا کنید
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc wget xz-utils
+
+      - name: Download Tiny Core Kernel Source and Config
+        run: |
+          # دانلود سورس کرنل 6.18.2 (طبق اطلاعات موجود در مخزن Tiny Core)
+          wget http://tinycorelinux.net/17.x/x86/release_candidates/kernel/linux-6.18.2.tar.xz
+          # دانلود فایل کانفیگ کرنل
+          wget http://tinycorelinux.net/17.x/x86/release_candidates/kernel/config-6.18.2-tinycore
+          
+          tar -xf linux-6.18.2.tar.xz
+          cd linux-6.18.2
+          cp ../config-6.18.2-tinycore .config
+
+      - name: Enable SELinux in Kernel Config
+        run: |
+          cd linux-6.18.2
+          # فعال‌سازی گزینه‌های اصلی SELinux
+          scripts/config --enable SECURITY_SELINUX
+          scripts/config --enable SECURITY_SELINUX_BOOTPARAM
+          scripts/config --enable SECURITY_SELINUX_DEVELOP
+          scripts/config --enable SECURITY
+          scripts/config --enable SECURITY_NETWORK
+          scripts/config --enable AUDIT
+          scripts/config --enable EXT4_FS_SECURITY
+          
+          # تنظیم SELinux به عنوان LSM پیش‌فرض
+          scripts/config --set-str DEFAULT_SECURITY "selinux"
+          
+          # اعمال تغییرات
+          make olddefconfig
+
+      - name: Compile Kernel
+        run: |
+          cd linux-6.18.2
+          # کامپایل کرنل (bzImage)
+          make -j$(nproc) bzImage
+          # کامپایل ماژول‌ها
+          make -j$(nproc) modules
+
+      - name: Package Output for Tiny Core
+        run: |
+          cd linux-6.18.2
+          
+          # کپی کردن کرنل
+          cp arch/x86/boot/bzImage ../vmlinuz-selinux
+          
+          # نصب ماژول‌ها در پوشه مجزا
+          make INSTALL_MOD_PATH=../modules_out modules_install
+          
+          # 🚨 نکته حیاتی برای Tiny Core: فشرده‌سازی ماژول‌ها به صورت .ko.gz
+          cd ../modules_out/lib/modules/6.18.2-tinycore
+          find . -name "*.ko" -exec gzip -9 {} \;
+          
+          # ساخت فایل modules.dep با پسوند .ko.gz
+          cd ..
+          depmod -b ../.. 6.18.2-tinycore
+          
+          # 🚨 ساخت لینک kernel.tclocal (بسیار مهم برای لود ماژول‌ها در Tiny Core)
+          cd 6.18.2-tinycore
+          ln -sf /usr/local/lib/modules/6.18.2-tinycore/kernel kernel.tclocal
+          
+          # بسته‌بندی ماژول‌ها
+          cd ../..
+          find . | cpio -o -H newc | gzip -9 > ../modules-selinux.gz
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ayhanos-selinux-kernel
+          path: |
+            vmlinuz-selinux
+            modules-selinux.gz
