@@ -1,4 +1,4 @@
-name: Build SELinux Userspace for Tiny Core
+name: Build SELinux Userspace Static for Tiny Core
 
 on:
   workflow_dispatch:
@@ -17,38 +17,43 @@ jobs:
           wget -q https://github.com/SELinuxProject/selinux/releases/download/3.7/selinux-3.7.tar.gz
           tar -xzf selinux-3.7.tar.gz
 
-      - name: Build and Install libsepol (Shared)
+      - name: Build and Install libsepol (Static)
         run: |
           cd selinux-3.7/libsepol
           make clean
-          # بدون DISABLE_SHARED تا کتابخانه اشتراکی ساخته شود
-          make -j$(nproc)
-          sudo make install
+          make -j$(nproc) DISABLE_SHARED=y
+          sudo make install DISABLE_SHARED=y
           sudo ldconfig
 
-      - name: Build and Install libselinux (Shared)
+      - name: Build and Install libselinux (Static)
         run: |
           cd selinux-3.7/libselinux
           make clean
-          # بدون DISABLE_SHARED تا کتابخانه اشتراکی ساخته شود
-          make -j$(nproc)
-          sudo make install
+          make -j$(nproc) DISABLE_SHARED=y PKG_CONFIG="pkg-config --static"
+          sudo make install DISABLE_SHARED=y PKG_CONFIG="pkg-config --static"
           sudo ldconfig
 
       - name: Build and Install checkpolicy (Static)
         run: |
           cd selinux-3.7/checkpolicy
           make clean
-          make -j$(nproc) DISABLE_SHARED=y
-          sudo make install DISABLE_SHARED=y
+          make -j$(nproc) DISABLE_SHARED=y PKG_CONFIG="pkg-config --static"
+          sudo make install DISABLE_SHARED=y PKG_CONFIG="pkg-config --static"
 
       - name: Build and Install policycoreutils (Static)
         run: |
           cd selinux-3.7/policycoreutils
           make clean
-          # حالا که libselinux به صورت اشتراکی نصب شده، این مرحله باید بدون خطا رد شود
-          make -j$(nproc) DISABLE_SHARED=y
-          sudo make install DISABLE_SHARED=y
+          # دستور کلیدی: معرفی صریح مسیر کتابخانه‌های استاتیک
+          make -j$(nproc) DISABLE_SHARED=y PKG_CONFIG="pkg-config --static" \
+            LIBDIR=/usr/local/lib SHLIBDIR=/usr/local/lib \
+            LDFLAGS="-L/usr/local/lib -static" \
+            LDLIBS="-lselinux -lsepol -lpcre2-8 -laudit -lpthread"
+          
+          sudo make install DISABLE_SHARED=y PKG_CONFIG="pkg-config --static" \
+            LIBDIR=/usr/local/lib SHLIBDIR=/usr/local/lib \
+            LDFLAGS="-L/usr/local/lib -static" \
+            LDLIBS="-lselinux -lsepol -lpcre2-8 -laudit -lpthread"
           sudo ldconfig
 
       - name: Package Output for Tiny Core
@@ -61,10 +66,10 @@ jobs:
           sudo cp -a /usr/local/share /tmp/selinux-out/ 2>/dev/null || true
           
           cd /tmp/selinux-out
-          tar -czf /tmp/selinux-userspace-tinycore.tar.gz .
+          tar -czf /tmp/selinux-userspace-static-tinycore.tar.gz .
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: selinux-userspace
-          path: /tmp/selinux-userspace-tinycore.tar.gz
+          name: selinux-userspace-static
+          path: /tmp/selinux-userspace-static-tinycore.tar.gz
