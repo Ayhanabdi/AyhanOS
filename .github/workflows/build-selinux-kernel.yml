@@ -1,4 +1,4 @@
-name: Build AyhanOS Kernel with SELinux
+name: Build AyhanOS Kernel with AppArmor and Network
 
 on:
   workflow_dispatch:
@@ -36,35 +36,33 @@ jobs:
           
           make oldconfig < /dev/null
 
-      - name: Enable SELinux and Network Drivers in Kernel Config
+      - name: Enable AppArmor and Network Drivers in Kernel Config
         run: |
           cd linux-6.18.2
           
-          # --- تنظیمات SELinux ---
-          scripts/config --enable SECURITY_SELINUX
-          scripts/config --enable SECURITY_SELINUX_BOOTPARAM
-          scripts/config --enable SECURITY_SELINUX_DEVELOP
-          scripts/config --enable SECURITY
-          scripts/config --enable SECURITY_NETWORK
-          scripts/config --enable AUDIT
-          scripts/config --enable EXT4_FS_SECURITY
-          scripts/config --set-str DEFAULT_SECURITY "selinux"
+          # --- تنظیمات AppArmor ---
+          scripts/config --enable CONFIG_SECURITY_APPARMOR
+          scripts/config --enable CONFIG_SECURITY_APPARMOR_BOOTPARAM_VALUE
+          scripts/config --set-str CONFIG_DEFAULT_SECURITY "apparmor"
+          scripts/config --enable CONFIG_SECURITY
+          scripts/config --enable CONFIG_SECURITY_NETWORK
           
-          # --- تنظیمات درایورهای شبکه (توکار) ---
-          # فعال کردن پیش‌نیاز MII
-          scripts/config --enable MII
-          
-          # فعال کردن درایور Realtek 8139 به صورت توکار
-          scripts/config --enable 8139TOO
-          scripts/config --enable 8139TOO_PIO
-          
-          # فعال کردن پروتکل‌های شبکه ضروری
-          scripts/config --enable INET
-          scripts/config --enable PACKET
-          scripts/config --enable UNIX
+          # --- تنظیمات درایورهای شبکه (توکار برای QEMU) ---
+          scripts/config --enable CONFIG_MII
+          scripts/config --enable CONFIG_8139TOO
+          scripts/config --enable CONFIG_8139TOO_PIO
+          scripts/config --enable CONFIG_INET
+          scripts/config --enable CONFIG_PACKET
+          scripts/config --enable CONFIG_UNIX
           
           # اعمال تغییرات
           make olddefconfig
+          
+          # --- مرحله بررسی (تضمینی) ---
+          echo "=== Checking Kernel Config ==="
+          grep "CONFIG_8139TOO=" .config || echo "WARNING: 8139TOO not found!"
+          grep "CONFIG_MII=" .config || echo "WARNING: MII not found!"
+          grep "CONFIG_SECURITY_APPARMOR=" .config || echo "WARNING: APPAPPARMOR not found!"
 
       - name: Compile Kernel
         run: |
@@ -75,7 +73,7 @@ jobs:
       - name: Package Output for Tiny Core
         run: |
           cd linux-6.18.2
-          cp arch/x86/boot/bzImage ../vmlinuz-selinux
+          cp arch/x86/boot/bzImage ../vmlinuz-apparmor
           
           mkdir -p ../modules_out
           make INSTALL_MOD_PATH=../modules_out modules_install
@@ -92,12 +90,12 @@ jobs:
           cd ..
           depmod -b ../.. $KERNEL_VERSION
           
-          tar -czf ../../../../modules-selinux.tar.gz -C $KERNEL_VERSION .
+          tar -czf ../../../../modules-apparmor.tar.gz -C $KERNEL_VERSION .
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ayhanos-selinux-kernel
+          name: ayhanos-apparmor-kernel
           path: |
-            vmlinuz-selinux
-            modules-selinux.tar.gz
+            vmlinuz-apparmor
+            modules-apparmor.tar.gz
