@@ -27,16 +27,20 @@ jobs:
           cd linux-6.18.2
           
           if [ -f "../config-6.18.2-tinycore" ]; then
+            echo "Using downloaded config"
             cp ../config-6.18.2-tinycore .config
           else
+            echo "Config not found, generating defconfig..."
             make defconfig
           fi
           
           make oldconfig < /dev/null
 
-      - name: Enable SELinux and Disable Problematic Drivers
+      - name: Enable SELinux and Network Drivers in Kernel Config
         run: |
           cd linux-6.18.2
+          
+          # --- تنظیمات SELinux ---
           scripts/config --enable SECURITY_SELINUX
           scripts/config --enable SECURITY_SELINUX_BOOTPARAM
           scripts/config --enable SECURITY_SELINUX_DEVELOP
@@ -46,12 +50,20 @@ jobs:
           scripts/config --enable EXT4_FS_SECURITY
           scripts/config --set-str DEFAULT_SECURITY "selinux"
           
-          scripts/config --disable NVRAM
-          scripts/config --disable RTC
-          scripts/config --disable RTC_CLASS
-          scripts/config --disable RTC_HCTOSYS
-          scripts/config --disable RTC_SYSTOHC
+          # --- تنظیمات درایورهای شبکه (توکار) ---
+          # فعال کردن پیش‌نیاز MII
+          scripts/config --enable MII
           
+          # فعال کردن درایور Realtek 8139 به صورت توکار
+          scripts/config --enable 8139TOO
+          scripts/config --enable 8139TOO_PIO
+          
+          # فعال کردن پروتکل‌های شبکه ضروری
+          scripts/config --enable INET
+          scripts/config --enable PACKET
+          scripts/config --enable UNIX
+          
+          # اعمال تغییرات
           make olddefconfig
 
       - name: Compile Kernel
@@ -72,6 +84,7 @@ jobs:
           echo "Kernel Version is: $KERNEL_VERSION"
           
           cd ../modules_out/lib/modules/$KERNEL_VERSION
+          
           find . -name "*.ko" -exec gzip -9 {} \;
           
           ln -sf kernel kernel.tclocal
@@ -79,9 +92,7 @@ jobs:
           cd ..
           depmod -b ../.. $KERNEL_VERSION
           
-          cd $KERNEL_VERSION
-          
-          tar -czf ../../../../modules-selinux.tar.gz -C . .
+          tar -czf ../../../../modules-selinux.tar.gz -C $KERNEL_VERSION .
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
