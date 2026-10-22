@@ -23,7 +23,7 @@ jobs:
           cd apparmor-v4.1.6/libraries/libapparmor
           ./autogen.sh
           # پیکربندی برای ساخت فقط کتابخانه استاتیک (بدون .so)
-          ./configure --prefix=/usr --enable-static --disable-shared CFLAGS="-static" LDFLAGS="-static"
+          ./configure --prefix=/usr --enable-static --disable-shared
           make -j$(nproc)
           sudo make install
           sudo ldconfig
@@ -32,17 +32,17 @@ jobs:
         run: |
           cd apparmor-v4.1.6/parser
           make clean
-          # استفاده از فلگ -static برای لینک کامل استاتیک
-          make -j$(nproc) LDFLAGS="-static -all-static" WITH_STATIC_LINKING=1
-          sudo make install LDFLAGS="-static -all-static" WITH_STATIC_LINKING=1
+          # استفاده از مکانیزم داخلی AppArmor برای لینک استاتیک
+          make -j$(nproc) WITH_STATIC_LINKING=1
+          sudo make install WITH_STATIC_LINKING=1
           sudo ldconfig
 
       - name: Build and Install apparmor_utils
         run: |
           cd apparmor-v4.1.6/utils
           make clean
-          make -j$(nproc) LDFLAGS="-static"
-          sudo make install LDFLAGS="-static"
+          make -j$(nproc)
+          sudo make install
           sudo ldconfig
 
       - name: Package Output for Tiny Core
