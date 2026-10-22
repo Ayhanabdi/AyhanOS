@@ -1,4 +1,4 @@
-name: Build SELinux Userspace for Tiny Core
+name: Build SELinux Userspace Static for Tiny Core
 
 on:
   workflow_dispatch:
@@ -14,44 +14,46 @@ jobs:
 
       - name: Download SELinux Userspace Source
         run: |
-          # دریافت آخرین نسخه پایدار از مخزن رسمی SELinuxProject
           wget -q https://github.com/SELinuxProject/selinux/releases/download/3.7/selinux-3.7.tar.gz
           tar -xzf selinux-3.7.tar.gz
           cd selinux-3.7
 
-      - name: Build and Install libsepol
+      - name: Build and Install libsepol (Static)
         run: |
           cd selinux-3.7/libsepol
           make clean
-          make -j$(nproc)
-          sudo make install
+          # استفاده از DISABLE_SHARED برای ساخت فقط کتابخانه استاتیک
+          make -j$(nproc) DISABLE_SHARED=y
+          sudo make install DISABLE_SHARED=y
           sudo ldconfig
 
-      - name: Build and Install libselinux
+      - name: Build and Install libselinux (Static)
         run: |
           cd selinux-3.7/libselinux
           make clean
-          make -j$(nproc)
-          sudo make install
+          # باید PKG_CONFIG را برای حالت استاتیک تنظیم کنیم تا وابستگی‌ها (مثل pcre2) درست لینک شوند
+          make -j$(nproc) DISABLE_SHARED=y PKG_CONFIG="pkg-config --static"
+          sudo make install DISABLE_SHARED=y PKG_CONFIG="pkg-config --static"
           sudo ldconfig
 
-      - name: Build and Install checkpolicy
+      - name: Build and Install checkpolicy (Static)
         run: |
           cd selinux-3.7/checkpolicy
           make clean
-          make -j$(nproc)
-          sudo make install
+          make -j$(nproc) DISABLE_SHARED=y
+          sudo make install DISABLE_SHARED=y
 
-      - name: Build and Install policycoreutils
+      - name: Build and Install policycoreutils (Static)
         run: |
           cd selinux-3.7/policycoreutils
           make clean
-          make -j$(nproc)
-          sudo make install
+          # برای لینک شدن ابزارها با کتابخانه استاتیک، باید مسیر کتابخانه را تنظیم کنیم
+          make -j$(nproc) DISABLE_SHARED=y PKG_CONFIG="pkg-config --static" LIBDIR=/usr/local/lib SHLIBDIR=/usr/local/lib
+          sudo make install DISABLE_SHARED=y PKG_CONFIG="pkg-config --static" LIBDIR=/usr/local/lib SHLIBDIR=/usr/local/lib
+          sudo ldconfig
 
       - name: Package Output for Tiny Core
         run: |
-          # جمع‌آوری فایل‌های نصب شده در یک پوشه موقت
           mkdir -p /tmp/selinux-out
           sudo cp -a /usr/local/bin /tmp/selinux-out/ 2>/dev/null || true
           sudo cp -a /usr/local/sbin /tmp/selinux-out/ 2>/dev/null || true
@@ -59,12 +61,11 @@ jobs:
           sudo cp -a /usr/local/include /tmp/selinux-out/ 2>/dev/null || true
           sudo cp -a /usr/local/share /tmp/selinux-out/ 2>/dev/null || true
           
-          # ساخت آرشیو نهایی
           cd /tmp/selinux-out
-          tar -czf /tmp/selinux-userspace-tinycore.tar.gz .
+          tar -czf /tmp/selinux-userspace-static-tinycore.tar.gz .
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: selinux-userspace
-          path: /tmp/selinux-userspace-tinycore.tar.gz
+          name: selinux-userspace-static
+          path: /tmp/selinux-userspace-static-tinycore.tar.gz
