@@ -1,4 +1,4 @@
-name: Build AppArmor Parser with Musl
+name: Build AppArmor Parser with Musl (x86_64)
 
 on:
   workflow_dispatch:
@@ -22,29 +22,34 @@ jobs:
         run: |
           cd apparmor-v4.1.6/libraries/libapparmor
           ./autogen.sh
-          CC=musl-gcc ./configure --prefix=/usr --enable-static --disable-shared
-          make -j$(nproc) CC=musl-gcc
+          # استفاده از -m64 برای اجبار معماری و --disable-nls برای حذف gettext
+          CC="musl-gcc -m64" ./configure --prefix=/usr --enable-static --disable-shared --disable-nls
+          make -j$(nproc) CC="musl-gcc -m64"
           sudo make install
 
       - name: Build apparmor_parser with Musl
         run: |
           cd apparmor-v4.1.6/parser
           make clean
-          # فقط از WITH_STATIC_LINKING استفاده کنید
-          make -j$(nproc) CC=musl-gcc WITH_STATIC_LINKING=1
-          sudo make install CC=musl-gcc WITH_STATIC_LINKING=1
+          # کامپایل با musl-gcc و لینک استاتیک کامل
+          # استفاده از -static-libgcc برای حل مشکل کتابخانه C++
+          make -j$(nproc) CC="musl-gcc -m64" LDFLAGS="-static -static-libgcc" WITH_STATIC_LINKING=1
+          sudo make install CC="musl-gcc -m64" LDFLAGS="-static -static-libgcc" WITH_STATIC_LINKING=1
 
       - name: Package Output for Tiny Core
         run: |
           mkdir -p /tmp/apparmor-out
           sudo cp -a /usr/sbin/apparmor_parser /tmp/apparmor-out/ 2>/dev/null || true
-          sudo cp -a /usr/lib/libapparmor* /tmp/apparmor-out/ 2>/dev/null || true
+          
+          # بررسی نهایی: آیا فایل به glibc نیاز دارد؟
+          echo "=== Checking for glibc dependencies ==="
+          strings /usr/sbin/apparmor_parser | grep "ld-linux" && echo "WARNING: Still linked to glibc!" || echo "SUCCESS: No glibc dependency found!"
           
           cd /tmp/apparmor-out
-          tar -czf /tmp/apparmor-musl.tar.gz .
+          tar -czf /tmp/apparmor-musl-final.tar.gz .
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: apparmor-musl
-          path: /tmp/apparmor-musl.tar.gz
+          name: apparmor-musl-final
+          path: /tmp/apparmor-musl-final.tar.gz
