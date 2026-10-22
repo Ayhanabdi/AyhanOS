@@ -26,13 +26,13 @@ jobs:
           make -j$(nproc) CC=musl-gcc
           sudo make install
 
-      - name: Build apparmor_parser with Musl (Fully Static)
+      - name: Build apparmor_parser with Musl
         run: |
           cd apparmor-v4.1.6/parser
           make clean
-          # کامپایل با musl-gcc و لینک استاتیک کامل
-          make -j$(nproc) CC=musl-gcc LDFLAGS="-static" WITH_STATIC_LINKING=1
-          sudo make install CC=musl-gcc LDFLAGS="-static" WITH_STATIC_LINKING=1
+          # فقط از WITH_STATIC_LINKING استفاده کنید
+          make -j$(nproc) CC=musl-gcc WITH_STATIC_LINKING=1
+          sudo make install CC=musl-gcc WITH_STATIC_LINKING=1
 
       - name: Package Output for Tiny Core
         run: |
