@@ -29,13 +29,25 @@ jobs:
             wget \
             tar \
             patch \
-            linux-headers
+            linux-headers \
+            sed
 
       - name: Download AppArmor Source
         run: |
           wget -q https://gitlab.com/apparmor/apparmor/-/archive/v4.1.6/apparmor-v4.1.6.tar.gz
           tar -xzf apparmor-v4.1.6.tar.gz
           cd apparmor-v4.1.6
+
+      - name: Fix sed command for musl compatibility
+        run: |
+          cd apparmor-v4.1.6
+          # اصلاح دستور sed در Makefile.am که در musl کار نمی‌کند
+          # جایگزینی \U با روش استاندارد برای بزرگ کردن حروف
+          sed -i 's/\\UIPPROTO_/IPPROTO_/g' libraries/libapparmor/src/Makefile.am
+          sed -i 's/\\L\\1/\\1/g' libraries/libapparmor/src/Makefile.am
+          
+          # چاپ بخش مربوطه برای بررسی
+          grep -A2 "af_protos.h" libraries/libapparmor/src/Makefile.am || true
 
       - name: Build libapparmor
         run: |
@@ -49,7 +61,6 @@ jobs:
         run: |
           cd apparmor-v4.1.6/parser
           make clean
-          # حذف فایل‌های تولید شده قبلی برای اطمینان
           rm -f generated_af_names.h generated_cap_names.h af_names.h cap_names.h
           make -j$(nproc) WITH_STATIC_LINKING=1
           make install WITH_STATIC_LINKING=1
