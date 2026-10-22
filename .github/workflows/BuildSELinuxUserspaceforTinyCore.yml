@@ -16,13 +16,11 @@ jobs:
         run: |
           wget -q https://github.com/SELinuxProject/selinux/releases/download/3.7/selinux-3.7.tar.gz
           tar -xzf selinux-3.7.tar.gz
-          cd selinux-3.7
 
       - name: Build and Install libsepol (Static)
         run: |
           cd selinux-3.7/libsepol
           make clean
-          # استفاده از DISABLE_SHARED برای ساخت فقط کتابخانه استاتیک
           make -j$(nproc) DISABLE_SHARED=y
           sudo make install DISABLE_SHARED=y
           sudo ldconfig
@@ -31,7 +29,6 @@ jobs:
         run: |
           cd selinux-3.7/libselinux
           make clean
-          # باید PKG_CONFIG را برای حالت استاتیک تنظیم کنیم تا وابستگی‌ها (مثل pcre2) درست لینک شوند
           make -j$(nproc) DISABLE_SHARED=y PKG_CONFIG="pkg-config --static"
           sudo make install DISABLE_SHARED=y PKG_CONFIG="pkg-config --static"
           sudo ldconfig
@@ -40,14 +37,14 @@ jobs:
         run: |
           cd selinux-3.7/checkpolicy
           make clean
-          make -j$(nproc) DISABLE_SHARED=y
-          sudo make install DISABLE_SHARED=y
+          make -j$(nproc) DISABLE_SHARED=y PKG_CONFIG="pkg-config --static"
+          sudo make install DISABLE_SHARED=y PKG_CONFIG="pkg-config --static"
 
       - name: Build and Install policycoreutils (Static)
         run: |
           cd selinux-3.7/policycoreutils
           make clean
-          # برای لینک شدن ابزارها با کتابخانه استاتیک، باید مسیر کتابخانه را تنظیم کنیم
+          # نکته کلیدی: PKG_CONFIG با --static تا وابستگی‌های خصوصی (libpcre2) هم لینک شوند
           make -j$(nproc) DISABLE_SHARED=y PKG_CONFIG="pkg-config --static" LIBDIR=/usr/local/lib SHLIBDIR=/usr/local/lib
           sudo make install DISABLE_SHARED=y PKG_CONFIG="pkg-config --static" LIBDIR=/usr/local/lib SHLIBDIR=/usr/local/lib
           sudo ldconfig
