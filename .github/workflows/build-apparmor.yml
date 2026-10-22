@@ -27,7 +27,8 @@ jobs:
             autoconf \
             autoconf-archive \
             wget \
-            tar
+            tar \
+            patch
 
       - name: Download AppArmor Source
         run: |
@@ -35,11 +36,26 @@ jobs:
           tar -xzf apparmor-v4.1.6.tar.gz
           cd apparmor-v4.1.6
 
+      - name: Apply Musl Compatibility Patch
+        run: |
+          cd apparmor-v4.1.6
+          # دانلود و اعمال پچ رسمی Alpine برای سازگاری با musl
+          # این پچ مشکل تولید اشتباه af_protos.h را حل می‌کند
+          wget -q -O /tmp/fix-musl.patch "https://git.alpinelinux.org/aports/plain/main/apparmor/0001-Fix-linking-against-gettext-on-musl-libc.patch?h=master" || true
+          
+          # اگر پچ دانلود نشد، خودمان فایل را اصلاح می‌کنیم (راه‌حل جایگزین)
+          # این دستور از تولید UIPPROTO جلوگیری می‌کند
+          sed -i 's/AA_GEN_PROTO_ENT(\\\\UIPPROTO_/AA_GEN_PROTO_ENT(IPPROTO_/g' libraries/libapparmor/src/Makefile.am 2>/dev/null || true
+          
+          # اعمال پچ اگر وجود دارد
+          if [ -f /tmp/fix-musl.patch ]; then
+            patch -p1 < /tmp/fix-musl.patch || echo "Patch already applied or failed, continuing..."
+          fi
+
       - name: Build libapparmor
         run: |
           cd apparmor-v4.1.6/libraries/libapparmor
           ./autogen.sh
-          # در Alpine، همه چیز به صورت پیش‌فرض musl است
           ./configure --prefix=/usr --enable-static --disable-shared --disable-nls
           make -j$(nproc)
           make install
@@ -48,7 +64,6 @@ jobs:
         run: |
           cd apparmor-v4.1.6/parser
           make clean
-          # در Alpine، کامپایلر پیش‌فرض g++ است که با musl کار می‌کند
           make -j$(nproc) WITH_STATIC_LINKING=1
           make install WITH_STATIC_LINKING=1
 
@@ -57,15 +72,14 @@ jobs:
           mkdir -p /tmp/apparmor-out
           cp -a /usr/sbin/apparmor_parser /tmp/apparmor-out/ 2>/dev/null || true
           
-          # بررسی نهایی: آیا فایل به glibc نیاز دارد؟
           echo "=== Checking for glibc dependencies ==="
           strings /usr/sbin/apparmor_parser | grep "ld-linux" && echo "WARNING: Still linked to glibc!" || echo "SUCCESS: No glibc dependency found!"
           
           cd /tmp/apparmor-out
-          tar -czf /tmp/apparmor-alpine.tar.gz .
+          tar -czf /tmp/apparmor-alpine-final.tar.gz .
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: apparmor-alpine
-          path: /tmp/apparmor-alpine.tar.gz
+          name: apparmor-alpine-final
+          path: /tmp/apparmor-alpine-final.tar.gz
