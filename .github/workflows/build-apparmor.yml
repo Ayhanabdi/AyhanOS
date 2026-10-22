@@ -10,11 +10,10 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bison flex libssl-dev libelf-dev libpcre2-dev pkg-config gettext python3-dev swig libtool automake autoconf
+          sudo apt-get install -y build-essential bison flex libssl-dev libelf-dev libpcre2-dev pkg-config gettext python3-dev swig libtool automake autoconf autoconf-archive
 
       - name: Download AppArmor Source
         run: |
-          # دانلود آخرین نسخه پایدار (4.1.6) از مخزن رسمی
           wget -q https://gitlab.com/apparmor/apparmor/-/archive/v4.1.6/apparmor-v4.1.6.tar.gz
           tar -xzf apparmor-v4.1.6.tar.gz
           cd apparmor-v4.1.6
@@ -22,10 +21,13 @@ jobs:
       - name: Build and Install libapparmor (Static)
         run: |
           cd apparmor-v4.1.6/libraries/libapparmor
-          # ساخت فایل‌های configure
-          sh ./autogen.sh
+          
+          # مرحله autogen.sh برای تولید اسکریپت configure
+          ./autogen.sh
+          
           # پیکربندی برای ساخت استاتیک
           ./configure --prefix=/usr --enable-static --disable-shared
+          
           make -j$(nproc)
           sudo make install
           sudo ldconfig
@@ -34,16 +36,15 @@ jobs:
         run: |
           cd apparmor-v4.1.6/parser
           make clean
-          # استفاده از فلگ استاتیک که در Makefile پروژه تعبیه شده است
+          # استفاده از فلگ استاتیک مخصوص AppArmor
           make -j$(nproc) WITH_STATIC_LINKING=1
           sudo make install WITH_STATIC_LINKING=1
           sudo ldconfig
 
-      - name: Build and Install apparmor_utils (Static)
+      - name: Build and Install apparmor_utils
         run: |
           cd apparmor-v4.1.6/utils
           make clean
-          # ساخت ابزارهای مدیریتی مثل aa-status و aa-enforce
           make -j$(nproc)
           sudo make install
           sudo ldconfig
@@ -51,7 +52,7 @@ jobs:
       - name: Package Output for Tiny Core
         run: |
           mkdir -p /tmp/apparmor-out
-          # کپی کردن فایل‌های اجرایی و کتابخانه‌های نصب شده
+          # کپی کردن ابزارهای تولید شده
           sudo cp -a /usr/bin/aa-* /tmp/apparmor-out/ 2>/dev/null || true
           sudo cp -a /usr/sbin/apparmor_parser /tmp/apparmor-out/ 2>/dev/null || true
           sudo cp -a /usr/lib/libapparmor* /tmp/apparmor-out/ 2>/dev/null || true
