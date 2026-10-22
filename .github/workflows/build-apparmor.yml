@@ -1,4 +1,4 @@
-name: Build AppArmor Userspace Static for Tiny Core
+name: Build AppArmor Userspace Fully Static for Tiny Core
 
 on:
   workflow_dispatch:
@@ -18,41 +18,36 @@ jobs:
           tar -xzf apparmor-v4.1.6.tar.gz
           cd apparmor-v4.1.6
 
-      - name: Build and Install libapparmor (Static)
+      - name: Build and Install libapparmor (Fully Static)
         run: |
           cd apparmor-v4.1.6/libraries/libapparmor
-          
-          # مرحله autogen.sh برای تولید اسکریپت configure
           ./autogen.sh
-          
-          # پیکربندی برای ساخت استاتیک
-          ./configure --prefix=/usr --enable-static --disable-shared
-          
+          # پیکربندی برای ساخت فقط کتابخانه استاتیک (بدون .so)
+          ./configure --prefix=/usr --enable-static --disable-shared CFLAGS="-static" LDFLAGS="-static"
           make -j$(nproc)
           sudo make install
           sudo ldconfig
 
-      - name: Build and Install apparmor_parser (Static)
+      - name: Build and Install apparmor_parser (Fully Static)
         run: |
           cd apparmor-v4.1.6/parser
           make clean
-          # استفاده از فلگ استاتیک مخصوص AppArmor
-          make -j$(nproc) WITH_STATIC_LINKING=1
-          sudo make install WITH_STATIC_LINKING=1
+          # استفاده از فلگ -static برای لینک کامل استاتیک
+          make -j$(nproc) LDFLAGS="-static -all-static" WITH_STATIC_LINKING=1
+          sudo make install LDFLAGS="-static -all-static" WITH_STATIC_LINKING=1
           sudo ldconfig
 
       - name: Build and Install apparmor_utils
         run: |
           cd apparmor-v4.1.6/utils
           make clean
-          make -j$(nproc)
-          sudo make install
+          make -j$(nproc) LDFLAGS="-static"
+          sudo make install LDFLAGS="-static"
           sudo ldconfig
 
       - name: Package Output for Tiny Core
         run: |
           mkdir -p /tmp/apparmor-out
-          # کپی کردن ابزارهای تولید شده
           sudo cp -a /usr/bin/aa-* /tmp/apparmor-out/ 2>/dev/null || true
           sudo cp -a /usr/sbin/apparmor_parser /tmp/apparmor-out/ 2>/dev/null || true
           sudo cp -a /usr/lib/libapparmor* /tmp/apparmor-out/ 2>/dev/null || true
