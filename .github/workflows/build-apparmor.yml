@@ -28,29 +28,14 @@ jobs:
             autoconf-archive \
             wget \
             tar \
-            patch
+            patch \
+            linux-headers
 
       - name: Download AppArmor Source
         run: |
           wget -q https://gitlab.com/apparmor/apparmor/-/archive/v4.1.6/apparmor-v4.1.6.tar.gz
           tar -xzf apparmor-v4.1.6.tar.gz
           cd apparmor-v4.1.6
-
-      - name: Apply Musl Compatibility Patch
-        run: |
-          cd apparmor-v4.1.6
-          # دانلود و اعمال پچ رسمی Alpine برای سازگاری با musl
-          # این پچ مشکل تولید اشتباه af_protos.h را حل می‌کند
-          wget -q -O /tmp/fix-musl.patch "https://git.alpinelinux.org/aports/plain/main/apparmor/0001-Fix-linking-against-gettext-on-musl-libc.patch?h=master" || true
-          
-          # اگر پچ دانلود نشد، خودمان فایل را اصلاح می‌کنیم (راه‌حل جایگزین)
-          # این دستور از تولید UIPPROTO جلوگیری می‌کند
-          sed -i 's/AA_GEN_PROTO_ENT(\\\\UIPPROTO_/AA_GEN_PROTO_ENT(IPPROTO_/g' libraries/libapparmor/src/Makefile.am 2>/dev/null || true
-          
-          # اعمال پچ اگر وجود دارد
-          if [ -f /tmp/fix-musl.patch ]; then
-            patch -p1 < /tmp/fix-musl.patch || echo "Patch already applied or failed, continuing..."
-          fi
 
       - name: Build libapparmor
         run: |
@@ -64,6 +49,8 @@ jobs:
         run: |
           cd apparmor-v4.1.6/parser
           make clean
+          # حذف فایل‌های تولید شده قبلی برای اطمینان
+          rm -f generated_af_names.h generated_cap_names.h af_names.h cap_names.h
           make -j$(nproc) WITH_STATIC_LINKING=1
           make install WITH_STATIC_LINKING=1
 
