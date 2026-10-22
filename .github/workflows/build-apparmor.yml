@@ -1,4 +1,4 @@
-name: Build AppArmor Parser with Musl (x86_64)
+name: Build AppArmor Parser with Alpine Musl (Ultimate)
 
 on:
   workflow_dispatch:
@@ -6,11 +6,28 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    container: alpine:latest
     steps:
-      - name: Install Build Dependencies
+      - name: Install Build Dependencies in Alpine
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential bison flex libssl-dev libelf-dev libpcre2-dev pkg-config gettext python3-dev swig libtool automake autoconf autoconf-archive musl-tools
+          apk update
+          apk add --no-cache \
+            build-base \
+            bison \
+            flex \
+            openssl-dev \
+            elfutils-dev \
+            pcre2-dev \
+            pkgconfig \
+            gettext-dev \
+            python3-dev \
+            swig \
+            libtool \
+            automake \
+            autoconf \
+            autoconf-archive \
+            wget \
+            tar
 
       - name: Download AppArmor Source
         run: |
@@ -18,38 +35,37 @@ jobs:
           tar -xzf apparmor-v4.1.6.tar.gz
           cd apparmor-v4.1.6
 
-      - name: Build libapparmor with Musl
+      - name: Build libapparmor
         run: |
           cd apparmor-v4.1.6/libraries/libapparmor
           ./autogen.sh
-          # استفاده از -m64 برای اجبار معماری و --disable-nls برای حذف gettext
-          CC="musl-gcc -m64" ./configure --prefix=/usr --enable-static --disable-shared --disable-nls
-          make -j$(nproc) CC="musl-gcc -m64"
-          sudo make install
+          # در Alpine، همه چیز به صورت پیش‌فرض musl است
+          ./configure --prefix=/usr --enable-static --disable-shared --disable-nls
+          make -j$(nproc)
+          make install
 
-      - name: Build apparmor_parser with Musl
+      - name: Build apparmor_parser (Fully Static)
         run: |
           cd apparmor-v4.1.6/parser
           make clean
-          # کامپایل با musl-gcc و لینک استاتیک کامل
-          # استفاده از -static-libgcc برای حل مشکل کتابخانه C++
-          make -j$(nproc) CC="musl-gcc -m64" LDFLAGS="-static -static-libgcc" WITH_STATIC_LINKING=1
-          sudo make install CC="musl-gcc -m64" LDFLAGS="-static -static-libgcc" WITH_STATIC_LINKING=1
+          # در Alpine، کامپایلر پیش‌فرض g++ است که با musl کار می‌کند
+          make -j$(nproc) WITH_STATIC_LINKING=1
+          make install WITH_STATIC_LINKING=1
 
       - name: Package Output for Tiny Core
         run: |
           mkdir -p /tmp/apparmor-out
-          sudo cp -a /usr/sbin/apparmor_parser /tmp/apparmor-out/ 2>/dev/null || true
+          cp -a /usr/sbin/apparmor_parser /tmp/apparmor-out/ 2>/dev/null || true
           
           # بررسی نهایی: آیا فایل به glibc نیاز دارد؟
           echo "=== Checking for glibc dependencies ==="
           strings /usr/sbin/apparmor_parser | grep "ld-linux" && echo "WARNING: Still linked to glibc!" || echo "SUCCESS: No glibc dependency found!"
           
           cd /tmp/apparmor-out
-          tar -czf /tmp/apparmor-musl-final.tar.gz .
+          tar -czf /tmp/apparmor-alpine.tar.gz .
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: apparmor-musl-final
-          path: /tmp/apparmor-musl-final.tar.gz
+          name: apparmor-alpine
+          path: /tmp/apparmor-alpine.tar.gz
