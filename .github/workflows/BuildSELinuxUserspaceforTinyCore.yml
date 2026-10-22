@@ -44,16 +44,16 @@ jobs:
         run: |
           cd selinux-3.7/policycoreutils
           make clean
-          # دستور کلیدی: معرفی صریح مسیر کتابخانه‌های استاتیک
+          # دستور کلیدی: اضافه کردن تمام وابستگی‌های استاتیک به LDLIBS
           make -j$(nproc) DISABLE_SHARED=y PKG_CONFIG="pkg-config --static" \
             LIBDIR=/usr/local/lib SHLIBDIR=/usr/local/lib \
             LDFLAGS="-L/usr/local/lib -static" \
-            LDLIBS="-lselinux -lsepol -lpcre2-8 -laudit -lpthread"
+            LDLIBS="-lselinux -lsepol -lpcre2-8 -laudit -lcap-ng -lpthread"
           
           sudo make install DISABLE_SHARED=y PKG_CONFIG="pkg-config --static" \
             LIBDIR=/usr/local/lib SHLIBDIR=/usr/local/lib \
             LDFLAGS="-L/usr/local/lib -static" \
-            LDLIBS="-lselinux -lsepol -lpcre2-8 -laudit -lpthread"
+            LDLIBS="-lselinux -lsepol -lpcre2-8 -laudit -lcap-ng -lpthread"
           sudo ldconfig
 
       - name: Package Output for Tiny Core
