@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - 'ayhanos_dl.c'
-  workflow_dispatch: # اجازه اجرای دستی
+  workflow_dispatch:
 
 jobs:
   build:
@@ -16,13 +16,21 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libcurl4-openssl-dev
+          # نصب تمام کتابخانه‌های مورد نیاز برای لینک استاتیک libcurl
+          sudo apt-get install -y build-essential libcurl4-openssl-dev libssl-dev libkrb5-dev libldap2-dev zlib1g-dev libpsl-dev libbrotli-dev
 
       - name: Compile AyhanOSDL (Static)
         run: |
-          # کامپایل استاتیک برای x86_64
-          # لینک کردن کتابخانه‌های curl و ssl به صورت استاتیک
-          gcc -static ayhanos_dl.c -o ayhanos_dl -lcurl -lssl -lcrypto
+          # کامپایل با لینک کردن تمام کتابخانه‌های وابسته
+          gcc -static ayhanos_dl.c -o ayhanos_dl \
+            -lcurl -lssl -lcrypto \
+            -lkrb5 -lgssapi_krb5 -lldap -llber \
+            -lz -lpsl -lbrotlidec -lbrotlicommon
+
+      - name: Verify Static Linking
+        run: |
+          file ayhanos_dl
+          ldd ayhanos_dl || true
 
       - name: Upload AyhanOSDL Artifact
         uses: actions/upload-artifact@v4
