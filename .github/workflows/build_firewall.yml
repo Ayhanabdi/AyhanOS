@@ -1,0 +1,30 @@
+name: Build AyhanGuard (x86_64 Static)
+
+on:
+  push:
+    paths:
+      - 'ayhan_guard.c'
+  workflow_dispatch: # اجازه میده دستی هم اجراش کنی
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - name: Compile AyhanGuard Static
+        run: |
+          # کامپایل استاتیک برای x86_64
+          gcc -static ayhan_guard.c -o ayhan_guard
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ayhan_guard_x86_64
+          path: ayhan_guard
