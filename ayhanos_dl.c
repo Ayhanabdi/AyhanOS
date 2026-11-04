@@ -4,12 +4,12 @@
 #include <curl/curl.h>
 #include <sys/stat.h>
 
-// ساختار برای نگهداری وضعیت دانلود
+// ساختار برای ذخیره وضعیت دانلود
 struct progress_data {
     double last_runtime;
 };
 
-// تابع نمایش نوار پیشرفت (Progress Bar)
+// تابع نمایش نوار پیشرفت
 static int progress_callback(void *clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow) {
     struct progress_data *prog = (struct progress_data *)clientp;
     (void)ultotal;
@@ -19,7 +19,6 @@ static int progress_callback(void *clientp, curl_off_t dltotal, curl_off_t dlnow
         double percentage = (double)dlnow / (double)dltotal * 100.0;
         double speed = 0;
         
-        // محاسبه سرعت (تقریبی)
         struct timespec ts;
         clock_gettime(CLOCK_MONOTONIC, &ts);
         double now = ts.tv_sec + ts.tv_nsec / 1e9;
@@ -29,7 +28,7 @@ static int progress_callback(void *clientp, curl_off_t dltotal, curl_off_t dlnow
         prog->last_runtime = now;
 
         printf("\r[");
-        int pos = (int)(percentage / 2.5); // 40 char wide bar
+        int pos = (int)(percentage / 2.5);
         for (int i = 0; i < 40; i++) {
             if (i < pos) printf("=");
             else if (i == pos) printf(">");
@@ -47,26 +46,28 @@ static int progress_callback(void *clientp, curl_off_t dltotal, curl_off_t dlnow
 
 int main(int argc, char *argv[]) {
     if (argc < 3) {
-        fprintf(stderr, "AyhanOSDL v2.0 - Advanced Downloader for AyhanOS\n");
+        fprintf(stderr, "AyhanDL - Secure Downloader for AyhanOS\n");
         fprintf(stderr, "Usage: %s <URL> <OutputFile> [Options]\n", argv[0]);
         fprintf(stderr, "Options:\n");
         fprintf(stderr, "  -c        Resume partial download\n");
         fprintf(stderr, "  -x <proxy> Use proxy (e.g., socks5://127.0.0.1:1080)\n");
-        fprintf(stderr, "  -v        Show verbose (headers)\n");
         return 1;
     }
 
     const char *url = argv[1];
     const char *out_filename = argv[2];
     int resume = 0;
-    int verbose = 0;
     const char *proxy = NULL;
 
-    // تحلیل آرگومان‌های اضافی
     for (int i = 3; i < argc; i++) {
         if (strcmp(argv[i], "-c") == 0) resume = 1;
-        else if (strcmp(argv[i], "-v") == 0) verbose = 1;
         else if (strcmp(argv[i], "-x") == 0 && i + 1 < argc) proxy = argv[++i];
+    }
+
+    // بررسی اینکه URL با HTTPS شروع می‌شود (اجبار به HTTPS)
+    if (strncmp(url, "https://", 8) != 0) {
+        fprintf(stderr, "[-] Error: AyhanOS requires HTTPS. HTTP is blocked.\n");
+        return 1;
     }
 
     CURL *curl;
@@ -79,7 +80,7 @@ int main(int argc, char *argv[]) {
     long resume_from = 0;
     if (resume && stat(out_filename, &st) == 0) {
         resume_from = st.st_size;
-        fp = fopen(out_filename, "ab"); // Append mode
+        fp = fopen(out_filename, "ab");
         printf("[*] Resuming from byte: %ld\n", resume_from);
     } else {
         fp = fopen(out_filename, "wb");
@@ -94,14 +95,16 @@ int main(int argc, char *argv[]) {
     curl = curl_easy_init();
     if (curl) {
         curl_easy_setopt(curl, CURLOPT_URL, url);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL); // Default fwrite
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
         curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "AyhanOSDL/2.0 (AyhanOS Downloader)");
         
-        // نمایش نوار پیشرفت
+        // اجبار به TLS 1.2+ برای امنیت
+        curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+        
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "AyhanDL/1.0 (AyhanOS)");
+        
+        // نوار پیشرفت
         curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_callback);
         curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &prog);
         curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
@@ -116,12 +119,7 @@ int main(int argc, char *argv[]) {
             curl_easy_setopt(curl, CURLOPT_PROXY, proxy);
         }
 
-        // نمایش هدرها (Verbose)
-        if (verbose) {
-            curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
-        }
-
-        printf("[*] AyhanOSDL: Downloading %s\n", url);
+        printf("[*] AyhanDL: Downloading %s\n", url);
         res = curl_easy_perform(curl);
         
         if (res != CURLE_OK) {
