@@ -1,4 +1,4 @@
-name: AyhanDL Build
+name: AyhanOSDL Build
 
 on:
   push:
@@ -18,7 +18,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential libssl-dev zlib1g-dev wget
 
-      - name: Compile libcurl (Minimal, Static)
+      - name: Compile libcurl (Static, OpenSSL)
         run: |
           wget https://curl.se/download/curl-8.11.0.tar.gz
           tar -xzf curl-8.11.0.tar.gz
@@ -53,12 +53,12 @@ jobs:
           make -j$(nproc)
           sudo make install
 
-      - name: Compile AyhanDL
+      - name: Compile AyhanOSDL
         run: |
           gcc -static ayhanos_dl.c -o ayhanos_dl -lcurl -lssl -lcrypto -lz
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AyhanDL-x86_64
+          name: AyhanOSDL-x86_64
           path: ayhanos_dl
