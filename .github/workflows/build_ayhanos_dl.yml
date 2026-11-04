@@ -3,7 +3,7 @@ name: AyhanDL Build
 on:
   push:
     paths:
-      - 'ayhan_dl.c'
+      - 'ayhanos_dl.c'
   workflow_dispatch:
 
 jobs:
@@ -55,10 +55,10 @@ jobs:
 
       - name: Compile AyhanDL
         run: |
-          gcc -static ayhan_dl.c -o ayhan_dl -lcurl -lssl -lcrypto -lz
+          gcc -static ayhanos_dl.c -o ayhanos_dl -lcurl -lssl -lcrypto -lz
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: AyhanDL-x86_64
-          path: ayhan_dl
+          path: ayhanos_dl
