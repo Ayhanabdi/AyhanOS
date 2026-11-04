@@ -4,12 +4,10 @@
 #include <curl/curl.h>
 #include <sys/stat.h>
 
-// ساختار برای ذخیره وضعیت دانلود
 struct progress_data {
     double last_runtime;
 };
 
-// تابع نمایش نوار پیشرفت
 static int progress_callback(void *clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow) {
     struct progress_data *prog = (struct progress_data *)clientp;
     (void)ultotal;
@@ -64,7 +62,6 @@ int main(int argc, char *argv[]) {
         else if (strcmp(argv[i], "-x") == 0 && i + 1 < argc) proxy = argv[++i];
     }
 
-    // بررسی اینکه URL با HTTPS شروع می‌شود (اجبار به HTTPS)
     if (strncmp(url, "https://", 8) != 0) {
         fprintf(stderr, "[-] Error: AyhanOS requires HTTPS. HTTP is blocked.\n");
         return 1;
@@ -75,7 +72,6 @@ int main(int argc, char *argv[]) {
     CURLcode res;
     struct progress_data prog = {0};
 
-    // بررسی وجود فایل برای ادامه دانلود
     struct stat st;
     long resume_from = 0;
     if (resume && stat(out_filename, &st) == 0) {
@@ -99,22 +95,24 @@ int main(int argc, char *argv[]) {
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
         curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
         
-        // اجبار به TLS 1.2+ برای امنیت
+        // اجبار به TLS 1.2+
         curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
         
+        // --- نادیده گرفتن گواهی Self-Signed ---
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+        // --------------------------------------
+
         curl_easy_setopt(curl, CURLOPT_USERAGENT, "AyhanDL/1.0 (AyhanOS)");
         
-        // نوار پیشرفت
         curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_callback);
         curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &prog);
         curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
 
-        // ادامه دانلود
         if (resume_from > 0) {
             curl_easy_setopt(curl, CURLOPT_RESUME_FROM_LARGE, (curl_off_t)resume_from);
         }
 
-        // پروکسی
         if (proxy) {
             curl_easy_setopt(curl, CURLOPT_PROXY, proxy);
         }
