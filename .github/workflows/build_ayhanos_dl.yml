@@ -1,9 +1,9 @@
-name: AyhanOSDL Build
+name: AyhanDL Build
 
 on:
   push:
     paths:
-      - 'ayhanos_dl.c'
+      - 'ayhan_dl.c'
   workflow_dispatch:
 
 jobs:
@@ -16,24 +16,49 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          # نصب تمام کتابخانه‌های مورد نیاز برای لینک استاتیک libcurl
-          sudo apt-get install -y build-essential libcurl4-openssl-dev libssl-dev libkrb5-dev libldap2-dev zlib1g-dev libpsl-dev libbrotli-dev
+          sudo apt-get install -y build-essential libssl-dev zlib1g-dev wget
 
-      - name: Compile AyhanOSDL (Static)
+      - name: Compile libcurl (Minimal, Static)
         run: |
-          # کامپایل با لینک کردن تمام کتابخانه‌های وابسته
-          gcc -static ayhanos_dl.c -o ayhanos_dl \
-            -lcurl -lssl -lcrypto \
-            -lkrb5 -lgssapi_krb5 -lldap -llber \
-            -lz -lpsl -lbrotlidec -lbrotlicommon
+          wget https://curl.se/download/curl-8.11.0.tar.gz
+          tar -xzf curl-8.11.0.tar.gz
+          cd curl-8.11.0
+          ./configure \
+            --disable-shared \
+            --enable-static \
+            --without-libpsl \
+            --without-brotli \
+            --without-zstd \
+            --without-libidn2 \
+            --without-librtmp \
+            --without-nghttp2 \
+            --without-ngtcp2 \
+            --disable-ldap \
+            --disable-ldaps \
+            --disable-ftp \
+            --disable-rtsp \
+            --disable-dict \
+            --disable-telnet \
+            --disable-tftp \
+            --disable-pop3 \
+            --disable-imap \
+            --disable-smb \
+            --disable-smtp \
+            --disable-gopher \
+            --disable-mqtt \
+            --disable-kerberos-auth \
+            --disable-negotiate-auth \
+            --disable-ntlm \
+            --disable-ntlm-wb
+          make -j$(nproc)
+          sudo make install
 
-      - name: Verify Static Linking
+      - name: Compile AyhanDL
         run: |
-          file ayhanos_dl
-          ldd ayhanos_dl || true
+          gcc -static ayhan_dl.c -o ayhan_dl -lcurl -lssl -lcrypto -lz
 
-      - name: Upload AyhanOSDL Artifact
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AyhanOSDL-x86_64
-          path: ayhanos_dl
+          name: AyhanDL-x86_64
+          path: ayhan_dl
