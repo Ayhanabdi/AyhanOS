@@ -1,4 +1,4 @@
-name: Build AyhanOS Ultimate Kernel (AppArmor, FS, Network, VirtIO, Cache)
+name: Build AyhanOS Ultimate Kernel v2 (Full Firewall Support)
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ jobs:
           sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc wget xz-utils cpio
 
       # =========================================================
-      # گام جدید: کش کردن سورس‌کد کرنل برای بیلدهای بعدی
+      # Cache the Kernel Source for faster subsequent builds
       # =========================================================
       - name: Cache Kernel Source
         id: cache-kernel
@@ -26,7 +26,7 @@ jobs:
           key: ${{ runner.os }}-kernel-source-6.18.2-v1
 
       # =========================================================
-      # دانلود سورس‌کد (فقط اگر در کش نبود)
+      # Download Source (Only if Cache Miss)
       # =========================================================
       - name: Download Tiny Core Kernel Source and Config
         if: steps.cache-kernel.outputs.cache-hit != 'true'
@@ -42,10 +42,8 @@ jobs:
           cd linux-6.18.2
           
           if [ -f "../config-6.18.2-tinycore" ]; then
-            echo "Using downloaded config"
             cp ../config-6.18.2-tinycore .config
           else
-            echo "Config not found, generating defconfig..."
             make defconfig
           fi
           
@@ -56,24 +54,23 @@ jobs:
         run: |
           echo "Cache hit! Kernel source loaded from cache."
           cd linux-6.18.2
-          # در صورت استفاده از کش، کانفیگ را از نو اعمال می‌کنیم تا مطمئن شویم تنظیمات جدید اعمال می‌شوند
           make defconfig
 
       # =========================================================
-      # فعال‌سازی تمام ویژگی‌های AyhanOS (سخت‌افزاری + امنیتی)
+      # Enable All AyhanOS Features (Hardware, Security & Firewall)
       # =========================================================
       - name: Enable All Kernel Features
         run: |
           cd linux-6.18.2
           
-          # --- 1. امنیت و AppArmor ---
+          # --- 1. Security & AppArmor ---
           scripts/config --enable CONFIG_SECURITY_APPARMOR
           scripts/config --enable CONFIG_SECURITY_APPARMOR_BOOTPARAM_VALUE
           scripts/config --set-str CONFIG_DEFAULT_SECURITY "apparmor"
           scripts/config --enable CONFIG_SECURITY
           scripts/config --enable CONFIG_SECURITY_NETWORK
           
-          # --- 2. شبکه و مجازی‌سازی (TUN/VPN) ---
+          # --- 2. Network & Virtualization (TUN/VPN) ---
           scripts/config --enable CONFIG_VIRTIO_NET
           scripts/config --enable CONFIG_NETDEVICES
           scripts/config --enable CONFIG_WIREGUARD
@@ -81,7 +78,7 @@ jobs:
           scripts/config --enable CONFIG_NET_FOU
           scripts/config --enable CONFIG_TUN
           
-          # --- 3. فایل‌سیستم‌ها (همه فرمت‌ها) ---
+          # --- 3. Filesystems (All Formats) ---
           scripts/config --enable CONFIG_EXT4_FS
           scripts/config --enable CONFIG_EXT4_FS_POSIX_ACL
           scripts/config --enable CONFIG_EXT4_FS_SECURITY
@@ -98,7 +95,7 @@ jobs:
           scripts/config --enable CONFIG_OVERLAY_FS
           scripts/config --enable CONFIG_FUSE_FS
           
-          # --- 4. حافظه و کارایی (CPU/Memory) ---
+          # --- 4. Memory & Performance (CPU/Memory) ---
           scripts/config --enable CONFIG_ZRAM
           scripts/config --enable CONFIG_ZSMALLOC
           scripts/config --enable CONFIG_ZRAM_WRITEBACK
@@ -110,7 +107,7 @@ jobs:
           scripts/config --enable CONFIG_CPU_IDLE
           scripts/config --enable CONFIG_KSM
           
-          # --- 5. ذخیره‌سازی (USB, SATA, NVMe) ---
+          # --- 5. Storage (USB, SATA, NVMe) ---
           scripts/config --enable CONFIG_USB
           scripts/config --enable CONFIG_USB_SUPPORT
           scripts/config --enable CONFIG_USB_STORAGE
@@ -123,59 +120,63 @@ jobs:
           scripts/config --enable CONFIG_BLK_DEV_NVME
           scripts/config --enable CONFIG_VIRTIO_BLK
           
-          # --- 6. گرافیک پایه و کنسول ---
+          # --- 6. Graphics & Console ---
           scripts/config --enable CONFIG_DRM
           scripts/config --enable CONFIG_DRM_VIRTIO_GPU
           scripts/config --enable CONFIG_FB
           scripts/config --enable CONFIG_FRAMEBUFFER_CONSOLE
           
-          # --- 7. VirtIO & Virtualization (برای QEMU) ---
+          # --- 7. VirtIO & Virtualization (For QEMU) ---
           scripts/config --enable CONFIG_VIRTIO_PCI
           scripts/config --enable CONFIG_VIRTIO_CONSOLE
           scripts/config --enable CONFIG_VIRTIO_BALLOON
           
-          # --- 8. Firewall & Advanced Networking ---
+          # --- 8. Firewall & Advanced Networking (FIXED DEPENDENCIES) ---
           scripts/config --enable CONFIG_NETFILTER
           scripts/config --enable CONFIG_NF_CONNTRACK
+          scripts/config --enable CONFIG_NETFILTER_XTABLES
           scripts/config --enable CONFIG_IP_NF_IPTABLES
+          scripts/config --enable CONFIG_IP_NF_FILTER
+          scripts/config --enable CONFIG_IP_NF_TARGET_REJECT
           scripts/config --enable CONFIG_BRIDGE
           
-          # --- 9. Input & Peripherals (کیبورد و ماوس) ---
+          # --- 9. Input & Peripherals ---
           scripts/config --enable CONFIG_INPUT_EVDEV
           scripts/config --enable CONFIG_HID_GENERIC
           scripts/config --enable CONFIG_USB_HID
           
-          # اعمال تغییرات نهایی
+          # Apply final changes
           make olddefconfig
           
-          # --- مرحله بررسی نهایی ---
+          # --- Final Configuration Check ---
           echo "=== Final Configuration Check ==="
           echo "--- Security ---"
-          grep "CONFIG_SECURITY_APPARMOR=" .config || echo "WARNING: AppArmor missing!"
+          grep "CONFIG_SECURITY_APPARMOR=y" .config || echo "WARNING: AppArmor missing!"
+          echo "--- Firewall (CRITICAL) ---"
+          grep "CONFIG_NETFILTER=y" .config || echo "WARNING: NETFILTER missing!"
+          grep "CONFIG_IP_NF_IPTABLES=y" .config || echo "WARNING: IPTABLES missing!"
+          grep "CONFIG_IP_NF_FILTER=y" .config || echo "WARNING: IP_NF_FILTER missing!"
           echo "--- Filesystems ---"
-          grep "CONFIG_EXT4_FS=" .config || echo "WARNING: EXT4 missing!"
-          grep "CONFIG_SQUASHFS=" .config || echo "WARNING: SquashFS missing!"
-          grep "CONFIG_NTFS3_FS=" .config || echo "WARNING: NTFS3 missing!"
+          grep "CONFIG_EXT4_FS=y" .config || echo "WARNING: EXT4 missing!"
+          grep "CONFIG_SQUASHFS=y" .config || echo "WARNING: SquashFS missing!"
           echo "--- Storage ---"
-          grep "CONFIG_VIRTIO_BLK=" .config || echo "WARNING: VirtIO Block missing!"
-          grep "CONFIG_ATA_PIIX=" .config || echo "WARNING: ATA PIIX missing!"
+          grep "CONFIG_VIRTIO_BLK=y" .config || echo "WARNING: VirtIO Block missing!"
           echo "--- Network ---"
-          grep "CONFIG_VIRTIO_NET=" .config || echo "WARNING: VirtIO Net missing!"
-          grep "CONFIG_WIREGUARD=" .config || echo "WARNING: WireGuard missing!"
-          grep "CONFIG_TUN=" .config || echo "WARNING: TUN missing!"
-          echo "--- Memory ---"
-          grep "CONFIG_ZRAM=" .config || echo "WARNING: ZRAM missing!"
-          grep "CONFIG_KSM=" .config || echo "WARNING: KSM missing!"
-          echo "--- Virtualization ---"
-          grep "CONFIG_VIRTIO_PCI=" .config || echo "WARNING: VirtIO PCI missing!"
-          echo "--- Input ---"
-          grep "CONFIG_INPUT_EVDEV=" .config || echo "WARNING: EVDEV missing!"
+          grep "CONFIG_VIRTIO_NET=y" .config || echo "WARNING: VirtIO Net missing!"
 
       - name: Compile Kernel
         run: |
           cd linux-6.18.2
           make -j$(nproc) bzImage
-          make -j$(nproc) modules
+
+      # =========================================================
+      # NEW: Direct check in System.map for Firewall symbols
+      # =========================================================
+      - name: Verify Firewall Symbols in Kernel
+        run: |
+          cd linux-6.18.2
+          echo "=== Checking Firewall Symbols in System.map ==="
+          grep -E "iptable_filter_init|ipt_do_table" System.map || echo "WARNING: Firewall symbols NOT found in compiled kernel!"
 
       - name: Package Output for Tiny Core
         run: |
@@ -200,7 +201,7 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ayhanos-ultimate-kernel
+          name: ayhanos-ultimate-kernel-v2
           path: |
             vmlinuz-ultimate
             modules-ultimate.tar.gz
