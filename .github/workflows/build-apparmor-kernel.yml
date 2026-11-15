@@ -1,4 +1,4 @@
-name: Build AyhanOS Ultimate Kernel (AppArmor, FS, Network, Storage)
+name: Build AyhanOS Ultimate Kernel (AppArmor, FS, Network, VirtIO, Cache)
 
 on:
   workflow_dispatch:
@@ -15,9 +15,24 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc wget xz-utils cpio
 
+      # =========================================================
+      # گام جدید: کش کردن سورس‌کد کرنل برای بیلدهای بعدی
+      # =========================================================
+      - name: Cache Kernel Source
+        id: cache-kernel
+        uses: actions/cache@v3
+        with:
+          path: linux-6.18.2
+          key: ${{ runner.os }}-kernel-source-6.18.2-v1
+
+      # =========================================================
+      # دانلود سورس‌کد (فقط اگر در کش نبود)
+      # =========================================================
       - name: Download Tiny Core Kernel Source and Config
+        if: steps.cache-kernel.outputs.cache-hit != 'true'
         run: |
           set -e
+          echo "Cache miss. Downloading kernel source..."
           wget -q --timeout=60 --tries=3 http://repo.tinycorelinux.net/17.x/x86/release/src/kernel/linux-6.18.2-patched.tar.xz || \
           wget -q --timeout=60 --tries=3 http://repo.tinycorelinux.net/17.x/x86/release/src/kernel/linux-6.18.2.tar.xz
           
@@ -35,7 +50,18 @@ jobs:
           fi
           
           make oldconfig < /dev/null
+          
+      - name: Confirm Cache Hit
+        if: steps.cache-kernel.outputs.cache-hit == 'true'
+        run: |
+          echo "Cache hit! Kernel source loaded from cache."
+          cd linux-6.18.2
+          # در صورت استفاده از کش، کانفیگ را از نو اعمال می‌کنیم تا مطمئن شویم تنظیمات جدید اعمال می‌شوند
+          make defconfig
 
+      # =========================================================
+      # فعال‌سازی تمام ویژگی‌های AyhanOS (سخت‌افزاری + امنیتی)
+      # =========================================================
       - name: Enable All Kernel Features
         run: |
           cd linux-6.18.2
@@ -47,12 +73,13 @@ jobs:
           scripts/config --enable CONFIG_SECURITY
           scripts/config --enable CONFIG_SECURITY_NETWORK
           
-          # --- 2. شبکه و مجازی‌سازی ---
+          # --- 2. شبکه و مجازی‌سازی (TUN/VPN) ---
           scripts/config --enable CONFIG_VIRTIO_NET
           scripts/config --enable CONFIG_NETDEVICES
           scripts/config --enable CONFIG_WIREGUARD
           scripts/config --enable CONFIG_NET_UDP_TUNNEL
           scripts/config --enable CONFIG_NET_FOU
+          scripts/config --enable CONFIG_TUN
           
           # --- 3. فایل‌سیستم‌ها (همه فرمت‌ها) ---
           scripts/config --enable CONFIG_EXT4_FS
@@ -71,13 +98,17 @@ jobs:
           scripts/config --enable CONFIG_OVERLAY_FS
           scripts/config --enable CONFIG_FUSE_FS
           
-          # --- 4. حافظه و کارایی ---
+          # --- 4. حافظه و کارایی (CPU/Memory) ---
           scripts/config --enable CONFIG_ZRAM
           scripts/config --enable CONFIG_ZSMALLOC
           scripts/config --enable CONFIG_ZRAM_WRITEBACK
           scripts/config --enable CONFIG_ZSWAP
           scripts/config --enable CONFIG_PREEMPT
           scripts/config --enable CONFIG_HZ_1000
+          scripts/config --enable CONFIG_TRANSPARENT_HUGEPAGE
+          scripts/config --enable CONFIG_CPU_FREQ
+          scripts/config --enable CONFIG_CPU_IDLE
+          scripts/config --enable CONFIG_KSM
           
           # --- 5. ذخیره‌سازی (USB, SATA, NVMe) ---
           scripts/config --enable CONFIG_USB
@@ -98,10 +129,26 @@ jobs:
           scripts/config --enable CONFIG_FB
           scripts/config --enable CONFIG_FRAMEBUFFER_CONSOLE
           
+          # --- 7. VirtIO & Virtualization (برای QEMU) ---
+          scripts/config --enable CONFIG_VIRTIO_PCI
+          scripts/config --enable CONFIG_VIRTIO_CONSOLE
+          scripts/config --enable CONFIG_VIRTIO_BALLOON
+          
+          # --- 8. Firewall & Advanced Networking ---
+          scripts/config --enable CONFIG_NETFILTER
+          scripts/config --enable CONFIG_NF_CONNTRACK
+          scripts/config --enable CONFIG_IP_NF_IPTABLES
+          scripts/config --enable CONFIG_BRIDGE
+          
+          # --- 9. Input & Peripherals (کیبورد و ماوس) ---
+          scripts/config --enable CONFIG_INPUT_EVDEV
+          scripts/config --enable CONFIG_HID_GENERIC
+          scripts/config --enable CONFIG_USB_HID
+          
           # اعمال تغییرات نهایی
           make olddefconfig
           
-          # --- مرحله بررسی نهایی (تضمینی) ---
+          # --- مرحله بررسی نهایی ---
           echo "=== Final Configuration Check ==="
           echo "--- Security ---"
           grep "CONFIG_SECURITY_APPARMOR=" .config || echo "WARNING: AppArmor missing!"
@@ -115,8 +162,14 @@ jobs:
           echo "--- Network ---"
           grep "CONFIG_VIRTIO_NET=" .config || echo "WARNING: VirtIO Net missing!"
           grep "CONFIG_WIREGUARD=" .config || echo "WARNING: WireGuard missing!"
+          grep "CONFIG_TUN=" .config || echo "WARNING: TUN missing!"
           echo "--- Memory ---"
           grep "CONFIG_ZRAM=" .config || echo "WARNING: ZRAM missing!"
+          grep "CONFIG_KSM=" .config || echo "WARNING: KSM missing!"
+          echo "--- Virtualization ---"
+          grep "CONFIG_VIRTIO_PCI=" .config || echo "WARNING: VirtIO PCI missing!"
+          echo "--- Input ---"
+          grep "CONFIG_INPUT_EVDEV=" .config || echo "WARNING: EVDEV missing!"
 
       - name: Compile Kernel
         run: |
