@@ -1,4 +1,4 @@
-name: Build AyhanOS Ultimate Kernel v2 (Full Firewall Support)
+name: Build AyhanOS Ultimate Kernel v3 (WLAN, BT, Audio, Graphics)
 
 on:
   workflow_dispatch:
@@ -15,9 +15,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc wget xz-utils cpio
 
-      # =========================================================
-      # Cache the Kernel Source for faster subsequent builds
-      # =========================================================
       - name: Cache Kernel Source
         id: cache-kernel
         uses: actions/cache@v3
@@ -25,9 +22,6 @@ jobs:
           path: linux-6.18.2
           key: ${{ runner.os }}-kernel-source-6.18.2-v1
 
-      # =========================================================
-      # Download Source (Only if Cache Miss)
-      # =========================================================
       - name: Download Tiny Core Kernel Source and Config
         if: steps.cache-kernel.outputs.cache-hit != 'true'
         run: |
@@ -56,9 +50,6 @@ jobs:
           cd linux-6.18.2
           make defconfig
 
-      # =========================================================
-      # Enable All AyhanOS Features (Hardware, Security & Firewall)
-      # =========================================================
       - name: Enable All Kernel Features
         run: |
           cd linux-6.18.2
@@ -78,7 +69,7 @@ jobs:
           scripts/config --enable CONFIG_NET_FOU
           scripts/config --enable CONFIG_TUN
           
-          # --- 3. Filesystems (All Formats) ---
+          # --- 3. Filesystems ---
           scripts/config --enable CONFIG_EXT4_FS
           scripts/config --enable CONFIG_EXT4_FS_POSIX_ACL
           scripts/config --enable CONFIG_EXT4_FS_SECURITY
@@ -95,7 +86,7 @@ jobs:
           scripts/config --enable CONFIG_OVERLAY_FS
           scripts/config --enable CONFIG_FUSE_FS
           
-          # --- 4. Memory & Performance (CPU/Memory) ---
+          # --- 4. Memory & Performance ---
           scripts/config --enable CONFIG_ZRAM
           scripts/config --enable CONFIG_ZSMALLOC
           scripts/config --enable CONFIG_ZRAM_WRITEBACK
@@ -107,7 +98,7 @@ jobs:
           scripts/config --enable CONFIG_CPU_IDLE
           scripts/config --enable CONFIG_KSM
           
-          # --- 5. Storage (USB, SATA, NVMe) ---
+          # --- 5. Storage ---
           scripts/config --enable CONFIG_USB
           scripts/config --enable CONFIG_USB_SUPPORT
           scripts/config --enable CONFIG_USB_STORAGE
@@ -126,52 +117,68 @@ jobs:
           scripts/config --enable CONFIG_FB
           scripts/config --enable CONFIG_FRAMEBUFFER_CONSOLE
           
-          # --- 7. VirtIO & Virtualization (For QEMU) ---
+          # --- 7. VirtIO & Virtualization ---
           scripts/config --enable CONFIG_VIRTIO_PCI
           scripts/config --enable CONFIG_VIRTIO_CONSOLE
           scripts/config --enable CONFIG_VIRTIO_BALLOON
           
-          # --- 8. Firewall & Advanced Networking (FIXED DEPENDENCIES) ---
+          # --- 8. Firewall & Advanced Networking ---
           scripts/config --enable CONFIG_NETFILTER
           scripts/config --enable CONFIG_NF_CONNTRACK
           scripts/config --enable CONFIG_NETFILTER_XTABLES
+          scripts/config --enable CONFIG_NETFILTER_ADVANCED
           scripts/config --enable CONFIG_IP_NF_IPTABLES
           scripts/config --enable CONFIG_IP_NF_FILTER
-          scripts/config --enable CONFIG_IP_NF_TARGET_REJECT
+          scripts/config --enable CONFIG_IP_NF_MANGLE
+          scripts/config --enable CONFIG_IP_NF_NAT
+          scripts/config --enable CONFIG_IP_NF_TARGET_MASQUERADE
           scripts/config --enable CONFIG_BRIDGE
+          scripts/config --disable CONFIG_NF_TABLES
           
           # --- 9. Input & Peripherals ---
           scripts/config --enable CONFIG_INPUT_EVDEV
           scripts/config --enable CONFIG_HID_GENERIC
           scripts/config --enable CONFIG_USB_HID
           
+          # --- 10. Wireless Network Support (WLAN) ---
+          scripts/config --enable CONFIG_WLAN
+          scripts/config --enable CONFIG_WIRELESS
+          scripts/config --enable CONFIG_CFG80211
+          scripts/config --enable CONFIG_MAC80211
+          scripts/config --enable CONFIG_CFG80211_WEXT
+          scripts/config --enable CONFIG_RFKILL
+          
+          # --- 11. Bluetooth Support ---
+          scripts/config --enable CONFIG_BT
+          scripts/config --enable CONFIG_BT_HCIUART
+          scripts/config --enable CONFIG_BT_HIDP
+          
+          # --- 12. Advanced Graphics ---
+          scripts/config --enable CONFIG_DRM_QXL
+          scripts/config --enable CONFIG_DRM_BOCHS
+          
+          # --- 13. Audio Support ---
+          scripts/config --enable CONFIG_SND
+          scripts/config --enable CONFIG_SND_HDA_INTEL
+          scripts/config --enable CONFIG_SND_VIRMIDI
+          
           # Apply final changes
           make olddefconfig
           
           # --- Final Configuration Check ---
           echo "=== Final Configuration Check ==="
-          echo "--- Security ---"
           grep "CONFIG_SECURITY_APPARMOR=y" .config || echo "WARNING: AppArmor missing!"
-          echo "--- Firewall (CRITICAL) ---"
-          grep "CONFIG_NETFILTER=y" .config || echo "WARNING: NETFILTER missing!"
           grep "CONFIG_IP_NF_IPTABLES=y" .config || echo "WARNING: IPTABLES missing!"
-          grep "CONFIG_IP_NF_FILTER=y" .config || echo "WARNING: IP_NF_FILTER missing!"
-          echo "--- Filesystems ---"
-          grep "CONFIG_EXT4_FS=y" .config || echo "WARNING: EXT4 missing!"
-          grep "CONFIG_SQUASHFS=y" .config || echo "WARNING: SquashFS missing!"
-          echo "--- Storage ---"
+          grep "CONFIG_WLAN=y" .config || echo "WARNING: WLAN missing!"
+          grep "CONFIG_BT=y" .config || echo "WARNING: Bluetooth missing!"
+          grep "CONFIG_SND=y" .config || echo "WARNING: Audio missing!"
           grep "CONFIG_VIRTIO_BLK=y" .config || echo "WARNING: VirtIO Block missing!"
-          echo "--- Network ---"
-          grep "CONFIG_VIRTIO_NET=y" .config || echo "WARNING: VirtIO Net missing!"
 
       - name: Compile Kernel
         run: |
           cd linux-6.18.2
           make -j$(nproc) bzImage
 
-      # =========================================================
-      # NEW: Direct check in System.map for Firewall symbols
-      # =========================================================
       - name: Verify Firewall Symbols in Kernel
         run: |
           cd linux-6.18.2
@@ -201,7 +208,7 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ayhanos-ultimate-kernel-v2
+          name: ayhanos-ultimate-kernel-v3
           path: |
             vmlinuz-ultimate
             modules-ultimate.tar.gz
