@@ -1,4 +1,4 @@
-name: Build AyhanOS Ultimate Kernel v3 (WLAN, BT, Audio, Graphics)
+name: Build AyhanOS Ultimate Kernel v4 (Anti-Hacker Security)
 
 on:
   workflow_dispatch:
@@ -162,6 +162,15 @@ jobs:
           scripts/config --enable CONFIG_SND_HDA_INTEL
           scripts/config --enable CONFIG_SND_VIRMIDI
           
+          # --- 14. Advanced Kernel Security (Anti-Hacker) ---
+          scripts/config --enable CONFIG_RANDOMIZE_BASE
+          scripts/config --enable CONFIG_RANDOMIZE_MEMORY
+          scripts/config --enable CONFIG_RANDOMIZE_KSTACK_OFFSET
+          scripts/config --enable CONFIG_PAGE_TABLE_ISOLATION
+          scripts/config --enable CONFIG_HARDENED_USERCOPY
+          scripts/config --enable CONFIG_FORTIFY_SOURCE
+          scripts/config --enable CONFIG_STACKPROTECTOR_STRONG
+          
           # Apply final changes
           make olddefconfig
           
@@ -173,6 +182,7 @@ jobs:
           grep "CONFIG_BT=y" .config || echo "WARNING: Bluetooth missing!"
           grep "CONFIG_SND=y" .config || echo "WARNING: Audio missing!"
           grep "CONFIG_VIRTIO_BLK=y" .config || echo "WARNING: VirtIO Block missing!"
+          grep "CONFIG_RANDOMIZE_BASE=y" .config || echo "WARNING: KASLR missing!"
 
       - name: Compile Kernel
         run: |
@@ -208,7 +218,7 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ayhanos-ultimate-kernel-v3
+          name: ayhanos-ultimate-kernel-v4
           path: |
             vmlinuz-ultimate
             modules-ultimate.tar.gz
