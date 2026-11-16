@@ -2,223 +2,393 @@ name: Build AyhanOS Ultimate Kernel v4 (Anti-Hacker Security)
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ main ]
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    env:
+      KVER: "6.18.2"
+      SRCDIR: "linux-6.18.2"
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Build Dependencies
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc wget xz-utils cpio
+          sudo apt-get install -y \
+            build-essential libncurses-dev bison flex libssl-dev libelf-dev \
+            bc wget xz-utils cpio rsync qemu-system-x86 busybox-static
 
-      - name: Cache Kernel Source
+      # ---------------------------------------------------------------
+      # Cache: must have an explicit key, otherwise the action fails.
+      # @v3 is retired on GitHub; use @v4.
+      # ---------------------------------------------------------------
+      - name: Cache kernel source
         id: cache-kernel
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
-          path: linux-6.18.2
-          key: ${{ runner.os }}-kernel-source-6.18.2-v1
+          path: ${{ env.SRCDIR }}
+          key: ${{ env.SRCDIR }}-tinycore-${{ runner.os }}-v2
+          restore-keys: |
+            ${{ env.SRCDIR }}-tinycore-${{ runner.os }}-
 
-      - name: Download Tiny Core Kernel Source and Config
+      - name: Fetch and prepare kernel source
         if: steps.cache-kernel.outputs.cache-hit != 'true'
+        shell: bash
         run: |
-          set -e
-          echo "Cache miss. Downloading kernel source..."
-          wget -q --timeout=60 --tries=3 http://repo.tinycorelinux.net/17.x/x86/release/src/kernel/linux-6.18.2-patched.tar.xz || \
-          wget -q --timeout=60 --tries=3 http://repo.tinycorelinux.net/17.x/x86/release/src/kernel/linux-6.18.2.tar.xz
-          
-          wget -q --timeout=60 --tries=2 http://repo.tinycorelinux.net/17.x/x86/release/src/kernel/config-6.18.2-tinycore || true
-          
-          tar -xf linux-6.18.2*.tar.xz
-          cd linux-6.18.2
-          
-          if [ -f "../config-6.18.2-tinycore" ]; then
-            cp ../config-6.18.2-tinycore .config
+          set -euo pipefail
+
+          BASE=http://repo.tinycorelinux.net/17.x/x86/release/src/kernel
+
+          # Two separate downloads: the original "wget A | wget B" piped the
+          # first download into the second and lost it.
+          if ! wget -q --timeout=60 --tries=3 "$BASE/linux-${KVER}-patched.tar.xz"; then
+            echo "Patched tarball unavailable, falling back to vanilla source."
+            wget -q --timeout=60 --tries=3 "$BASE/linux-${KVER}.tar.xz"
+          fi
+
+          wget -q --timeout=60 --tries=2 "$BASE/config-${KVER}-tinycore" || true
+
+          # --wildcards is required because tar does not glob by itself.
+          tar -xf linux-${KVER}*.tar.xz --wildcards 'linux*' 2>/dev/null || \
+            tar -xf linux-${KVER}-patched.tar.xz
+
+          # Normalise the extracted directory name so the cache path is stable.
+          if [ ! -d "$SRCDIR" ]; then
+            FOUND="$(find . -maxdepth 1 -type d -name 'linux*' | head -n1)"
+            [ -n "$FOUND" ] || { echo "::error::Kernel source directory not found."; exit 1; }
+            mv "$FOUND" "$SRCDIR"
+          fi
+
+          cd "$SRCDIR"
+
+          if [ -s "../config-${KVER}-tinycore" ]; then
+            cp "../config-${KVER}-tinycore" .config
+            # olddefconfig keeps the copied config and fills gaps.
+            # defconfig would have overwritten it with x86_64_defconfig.
+            make olddefconfig
           else
             make defconfig
           fi
-          
-          make oldconfig < /dev/null
-          
-      - name: Confirm Cache Hit
+
+      - name: Confirm cache hit
         if: steps.cache-kernel.outputs.cache-hit == 'true'
+        shell: bash
         run: |
-          echo "Cache hit! Kernel source loaded from cache."
-          cd linux-6.18.2
-          make defconfig
+          set -euo pipefail
+          cd "$SRCDIR"
+          echo "Cache hit. Kernel source restored from cache."
 
-      - name: Enable All Kernel Features
+      # ---------------------------------------------------------------
+      # Configuration
+      # ---------------------------------------------------------------
+      - name: Apply kernel configuration
+        shell: bash
         run: |
-          cd linux-6.18.2
-          
+          set -euo pipefail
+          cd "$SRCDIR"
+
           # --- 1. Security & AppArmor ---
-          scripts/config --enable CONFIG_SECURITY_APPARMOR
-          scripts/config --enable CONFIG_SECURITY_APPARMOR_BOOTPARAM_VALUE
-          scripts/config --set-str CONFIG_DEFAULT_SECURITY "apparmor"
-          scripts/config --enable CONFIG_SECURITY
-          scripts/config --enable CONFIG_SECURITY_NETWORK
-          
+          scripts/config --enable  CONFIG_SECURITY
+          scripts/config --enable  CONFIG_SECURITY_NETWORK
+          scripts/config --enable  CONFIG_SECURITY_APPARMOR
+          scripts/config --set-str CONFIG_DEFAULT_SECURITY apparmor
+          scripts/config --set-str CONFIG_LSM "lockdown,yama,apparmor,bpf"
+
           # --- 2. Network & Virtualization (TUN/VPN) ---
-          scripts/config --enable CONFIG_VIRTIO_NET
-          scripts/config --enable CONFIG_NETDEVICES
-          scripts/config --enable CONFIG_WIREGUARD
-          scripts/config --enable CONFIG_NET_UDP_TUNNEL
-          scripts/config --enable CONFIG_NET_FOU
-          scripts/config --enable CONFIG_TUN
-          
+          scripts/config --enable  CONFIG_NETDEVICES
+          scripts/config --enable  CONFIG_VIRTIO_NET
+          scripts/config --enable  CONFIG_WIREGUARD
+          scripts/config --enable  CONFIG_NET_UDP_TUNNEL
+          scripts/config --enable  CONFIG_NET_FOU
+          scripts/config --enable  CONFIG_TUN
+
           # --- 3. Filesystems ---
-          scripts/config --enable CONFIG_EXT4_FS
-          scripts/config --enable CONFIG_EXT4_FS_POSIX_ACL
-          scripts/config --enable CONFIG_EXT4_FS_SECURITY
-          scripts/config --enable CONFIG_VFAT_FS
-          scripts/config --enable CONFIG_NTFS3_FS
-          scripts/config --enable CONFIG_EXFAT_FS
-          scripts/config --enable CONFIG_FAT_FS
-          scripts/config --enable CONFIG_MSDOS_FS
-          scripts/config --enable CONFIG_ISO9660_FS
-          scripts/config --enable CONFIG_SQUASHFS
-          scripts/config --enable CONFIG_SQUASHFS_XZ
-          scripts/config --enable CONFIG_SQUASHFS_LZO
-          scripts/config --enable CONFIG_SQUASHFS_ZLIB
-          scripts/config --enable CONFIG_OVERLAY_FS
-          scripts/config --enable CONFIG_FUSE_FS
-          
+          scripts/config --enable  CONFIG_EXT4_FS
+          scripts/config --enable  CONFIG_EXT4_FS_POSIX_ACL
+          scripts/config --enable  CONFIG_EXT4_FS_SECURITY
+          scripts/config --enable  CONFIG_FAT_FS
+          scripts/config --enable  CONFIG_MSDOS_FS
+          scripts/config --enable  CONFIG_VFAT_FS
+          scripts/config --enable  CONFIG_NTFS3_FS
+          scripts/config --enable  CONFIG_EXFAT_FS
+          scripts/config --enable  CONFIG_ISO9660_FS
+          scripts/config --enable  CONFIG_SQUASHFS
+          scripts/config --enable  CONFIG_SQUASHFS_XZ
+          scripts/config --enable  CONFIG_SQUASHFS_LZO
+          scripts/config --enable  CONFIG_SQUASHFS_ZLIB
+          scripts/config --enable  CONFIG_OVERLAY_FS
+          scripts/config --enable  CONFIG_FUSE_FS
+
           # --- 4. Memory & Performance ---
-          scripts/config --enable CONFIG_ZRAM
-          scripts/config --enable CONFIG_ZSMALLOC
-          scripts/config --enable CONFIG_ZRAM_WRITEBACK
-          scripts/config --enable CONFIG_ZSWAP
-          scripts/config --enable CONFIG_PREEMPT
-          scripts/config --enable CONFIG_HZ_1000
-          scripts/config --enable CONFIG_TRANSPARENT_HUGEPAGE
-          scripts/config --enable CONFIG_CPU_FREQ
-          scripts/config --enable CONFIG_CPU_IDLE
-          scripts/config --enable CONFIG_KSM
-          
+          scripts/config --enable  CONFIG_ZRAM
+          scripts/config --enable  CONFIG_ZSMALLOC
+          scripts/config --enable  CONFIG_ZRAM_WRITEBACK
+          scripts/config --enable  CONFIG_ZSWAP
+          scripts/config --enable  CONFIG_PREEMPT
+          scripts/config --enable  CONFIG_HZ_1000
+          scripts/config --enable  CONFIG_TRANSPARENT_HUGEPAGE
+          scripts/config --enable  CONFIG_CPU_FREQ
+          scripts/config --enable  CONFIG_CPU_IDLE
+          scripts/config --enable  CONFIG_KSM
+
           # --- 5. Storage ---
-          scripts/config --enable CONFIG_USB
-          scripts/config --enable CONFIG_USB_SUPPORT
-          scripts/config --enable CONFIG_USB_STORAGE
-          scripts/config --enable CONFIG_USB_XHCI_HCD
-          scripts/config --enable CONFIG_USB_EHCI_HCD
-          scripts/config --enable CONFIG_ATA
-          scripts/config --enable CONFIG_ATA_PIIX
-          scripts/config --enable CONFIG_SATA_AHCI
-          scripts/config --enable CONFIG_NVME_CORE
-          scripts/config --enable CONFIG_BLK_DEV_NVME
-          scripts/config --enable CONFIG_VIRTIO_BLK
-          
+          scripts/config --enable  CONFIG_USB
+          scripts/config --enable  CONFIG_USB_SUPPORT
+          scripts/config --enable  CONFIG_USB_STORAGE
+          scripts/config --enable  CONFIG_USB_XHCI_HCD
+          scripts/config --enable  CONFIG_USB_EHCI_HCD
+          scripts/config --enable  CONFIG_ATA
+          scripts/config --enable  CONFIG_ATA_PIIX
+          scripts/config --enable  CONFIG_SATA_AHCI
+          scripts/config --enable  CONFIG_BLK_DEV_NVME
+          scripts/config --enable  CONFIG_NVME_CORE
+          scripts/config --enable  CONFIG_VIRTIO_BLK
+
           # --- 6. Graphics & Console ---
-          scripts/config --enable CONFIG_DRM
-          scripts/config --enable CONFIG_DRM_VIRTIO_GPU
-          scripts/config --enable CONFIG_FB
-          scripts/config --enable CONFIG_FRAMEBUFFER_CONSOLE
-          
+          scripts/config --enable  CONFIG_DRM
+          scripts/config --enable  CONFIG_DRM_VIRTIO_GPU
+          scripts/config --enable  CONFIG_FB
+          scripts/config --enable  CONFIG_FRAMEBUFFER_CONSOLE
+
           # --- 7. VirtIO & Virtualization ---
-          scripts/config --enable CONFIG_VIRTIO_PCI
-          scripts/config --enable CONFIG_VIRTIO_CONSOLE
-          scripts/config --enable CONFIG_VIRTIO_BALLOON
-          
+          scripts/config --enable  CONFIG_VIRTIO_PCI
+          scripts/config --enable  CONFIG_VIRTIO_CONSOLE
+          scripts/config --enable  CONFIG_VIRTIO_BALLOON
+
           # --- 8. Firewall & Advanced Networking ---
-          scripts/config --enable CONFIG_NETFILTER
-          scripts/config --enable CONFIG_NF_CONNTRACK
-          scripts/config --enable CONFIG_NETFILTER_XTABLES
-          scripts/config --enable CONFIG_NETFILTER_ADVANCED
-          scripts/config --enable CONFIG_IP_NF_IPTABLES
-          scripts/config --enable CONFIG_IP_NF_FILTER
-          scripts/config --enable CONFIG_IP_NF_MANGLE
-          scripts/config --enable CONFIG_IP_NF_NAT
-          scripts/config --enable CONFIG_IP_NF_TARGET_MASQUERADE
-          scripts/config --enable CONFIG_BRIDGE
+          scripts/config --enable  CONFIG_NETFILTER
+          scripts/config --enable  CONFIG_NF_CONNTRACK
+          scripts/config --enable  CONFIG_NETFILTER_XTABLES
+          scripts/config --enable  CONFIG_NETFILTER_ADVANCED
+          scripts/config --enable  CONFIG_IP_NF_IPTABLES
+          scripts/config --enable  CONFIG_IP_NF_FILTER
+          scripts/config --enable  CONFIG_IP_NF_MANGLE
+          scripts/config --enable  CONFIG_IP_NF_NAT
+          scripts/config --enable  CONFIG_IP_NF_TARGET_MASQUERADE
+          scripts/config --enable  CONFIG_BRIDGE
           scripts/config --disable CONFIG_NF_TABLES
-          
+
           # --- 9. Input & Peripherals ---
-          scripts/config --enable CONFIG_INPUT_EVDEV
-          scripts/config --enable CONFIG_HID_GENERIC
-          scripts/config --enable CONFIG_USB_HID
-          
-          # --- 10. Wireless Network Support (WLAN) ---
-          scripts/config --enable CONFIG_WLAN
-          scripts/config --enable CONFIG_WIRELESS
-          scripts/config --enable CONFIG_CFG80211
-          scripts/config --enable CONFIG_MAC80211
-          scripts/config --enable CONFIG_CFG80211_WEXT
-          scripts/config --enable CONFIG_RFKILL
-          
-          # --- 11. Bluetooth Support ---
-          scripts/config --enable CONFIG_BT
-          scripts/config --enable CONFIG_BT_HCIUART
-          scripts/config --enable CONFIG_BT_HIDP
-          
+          scripts/config --enable  CONFIG_INPUT_EVDEV
+          scripts/config --enable  CONFIG_HID_GENERIC
+          scripts/config --enable  CONFIG_USB_HID
+
+          # --- 10. Wireless Network Support ---
+          # NOTE: CONFIG_WIRELESS is not a real symbol; the menu is CONFIG_WLAN.
+          scripts/config --enable  CONFIG_WLAN
+          scripts/config --enable  CONFIG_CFG80211
+          scripts/config --enable  CONFIG_MAC80211
+          scripts/config --enable  CONFIG_CFG80211_WEXT
+          scripts/config --enable  CONFIG_RFKILL
+
+          # --- 11. Bluetooth ---
+          scripts/config --enable  CONFIG_BT
+          scripts/config --enable  CONFIG_BT_HCIUART
+          scripts/config --enable  CONFIG_BT_HIDP
+
           # --- 12. Advanced Graphics ---
-          scripts/config --enable CONFIG_DRM_QXL
-          scripts/config --enable CONFIG_DRM_BOCHS
-          
-          # --- 13. Audio Support ---
-          scripts/config --enable CONFIG_SND
-          scripts/config --enable CONFIG_SND_HDA_INTEL
-          scripts/config --enable CONFIG_SND_VIRMIDI
-          
-          # --- 14. Advanced Kernel Security (Anti-Hacker) ---
-          scripts/config --enable CONFIG_RANDOMIZE_BASE
-          scripts/config --enable CONFIG_RANDOMIZE_MEMORY
-          scripts/config --enable CONFIG_RANDOMIZE_KSTACK_OFFSET
-          scripts/config --enable CONFIG_PAGE_TABLE_ISOLATION
-          scripts/config --enable CONFIG_HARDENED_USERCOPY
-          scripts/config --enable CONFIG_FORTIFY_SOURCE
-          scripts/config --enable CONFIG_STACKPROTECTOR_STRONG
-          
-          # Apply final changes
+          scripts/config --enable  CONFIG_DRM_QXL
+          scripts/config --enable  CONFIG_DRM_BOCHS
+
+          # --- 13. Audio ---
+          scripts/config --enable  CONFIG_SND
+          scripts/config --enable  CONFIG_SND_HDA_INTEL
+          scripts/config --enable  CONFIG_SND_VIRMIDI
+
+          # --- 14. Hardening (Anti-Hacker) ---
+          scripts/config --enable  CONFIG_RANDOMIZE_BASE
+          scripts/config --enable  CONFIG_RANDOMIZE_MEMORY
+          scripts/config --enable  CONFIG_RANDOMIZE_KSTACK_OFFSET
+          scripts/config --enable  CONFIG_HARDENED_USERCOPY
+          scripts/config --enable  CONFIG_FORTIFY_SOURCE
+          scripts/config --enable  CONFIG_STACKPROTECTOR_STRONG
+          scripts/config --enable  CONFIG_STRICT_KERNEL_RWX
+          scripts/config --enable  CONFIG_STRICT_MODULE_RWX
+
+          # --- 15. Mitigations (Spectre / Meltdown / SSB) ---
+          # 6.9+ renamed the whole family: SPECULATION_MITIGATIONS -> CPU_MITIGATIONS
+          # and PAGE_TABLE_ISOLATION -> MITIGATION_PAGE_TABLE_ISOLATION.
+          # Both the new and legacy names are enabled on purpose: the unknown
+          # one is dropped by olddefconfig, the real one resolves to y.
+          scripts/config --enable  CONFIG_CPU_MITIGATIONS
+          scripts/config --enable  CONFIG_MITIGATION_PAGE_TABLE_ISOLATION
+          scripts/config --enable  CONFIG_PAGE_TABLE_ISOLATION
+          scripts/config --enable  CONFIG_MITIGATION_SPECTRE_V1
+          scripts/config --enable  CONFIG_MITIGATION_SPECTRE_V2
+          scripts/config --enable  CONFIG_MITIGATION_RETPOLINE
+          scripts/config --enable  CONFIG_MITIGATION_IBPB_ENTRY
+          scripts/config --enable  CONFIG_MITIGATION_SSB
+
+          # Auto-detect the SSB symbol actually present in this tree.
+          SSB_SYM="$(grep -rhoE '^[[:space:]]*config (MITIGATION_SSB|SPEC_STORE_BYPASS|SPEC_STORE_BYPASS_DISABLE)[[:space:]]*$' \
+            arch/x86 Kconfig* 2>/dev/null | awk '{print $2}' | head -n1 || true)"
+
+          if [ -n "${SSB_SYM:-}" ]; then
+            echo "Detected SSB Kconfig symbol: CONFIG_${SSB_SYM}"
+            scripts/config --enable "CONFIG_${SSB_SYM}"
+          else
+            echo "No dedicated SSB Kconfig symbol in this tree."
+            echo "Upstream builds SSB mitigation unconditionally; it is gated by CPU_MITIGATIONS."
+          fi
+
+          # --- Resolve the configuration once, at the end ---
           make olddefconfig
-          
-          # --- Final Configuration Check ---
-          echo "=== Final Configuration Check ==="
-          grep "CONFIG_SECURITY_APPARMOR=y" .config || echo "WARNING: AppArmor missing!"
-          grep "CONFIG_IP_NF_IPTABLES=y" .config || echo "WARNING: IPTABLES missing!"
-          grep "CONFIG_WLAN=y" .config || echo "WARNING: WLAN missing!"
-          grep "CONFIG_BT=y" .config || echo "WARNING: Bluetooth missing!"
-          grep "CONFIG_SND=y" .config || echo "WARNING: Audio missing!"
-          grep "CONFIG_VIRTIO_BLK=y" .config || echo "WARNING: VirtIO Block missing!"
-          grep "CONFIG_RANDOMIZE_BASE=y" .config || echo "WARNING: KASLR missing!"
 
-      - name: Compile Kernel
+          # --- Final configuration check ---
+          echo "=== Final configuration check ==="
+          grep -E '^CONFIG_(SECURITY_APPARMOR|DEFAULT_SECURITY|LSM|CPU_MITIGATIONS|MITIGATION_.*|RANDOMIZE_BASE|STACKPROTECTOR_STRONG|HARDENED_USERCOPY)=' .config || true
+
+          echo "=== Hard assertions ==="
+          fail=0
+
+          if ! grep -q '^CONFIG_SECURITY_APPARMOR=y$' .config; then
+            echo "::error::AppArmor is missing from the resolved config."
+            fail=1
+          fi
+
+          if grep -qE '^config CPU_MITIGATIONS$' arch/x86/Kconfig; then
+            if ! grep -q '^CONFIG_CPU_MITIGATIONS=y$' .config; then
+              echo "::error::CONFIG_CPU_MITIGATIONS is not y; all mitigation options are gated by it."
+              fail=1
+            fi
+          fi
+
+          # Do not let a silently dropped SSB symbol pass unnoticed.
+          if [ -n "${SSB_SYM:-}" ] && ! grep -qE "^CONFIG_${SSB_SYM}=y$" .config; then
+            echo "::error::CONFIG_${SSB_SYM} was dropped by olddefconfig (unmet dependencies)."
+            grep -nE "^#? ?CONFIG_${SSB_SYM}" .config || true
+            fail=1
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            echo "=== Mitigation / security symbols in this tree ==="
+            grep -nE 'config (CPU_MITIGATIONS|MITIGATION_|SPEC_STORE)' arch/x86/Kconfig || true
+            exit 1
+          fi
+
+      # ---------------------------------------------------------------
+      # Build
+      # ---------------------------------------------------------------
+      - name: Build kernel
+        shell: bash
         run: |
-          cd linux-6.18.2
-          make -j$(nproc) bzImage
+          set -euo pipefail
+          cd "$SRCDIR"
+          make -j"$(nproc)" bzImage modules
 
-      - name: Verify Firewall Symbols in Kernel
+          if [ ! -f arch/x86/boot/bzImage ]; then
+            echo "::error::bzImage was not produced."
+            exit 1
+          fi
+
+          echo "bzImage size: $(stat -c %s arch/x86/boot/bzImage) bytes"
+          cp arch/x86/boot/bzImage "$GITHUB_WORKSPACE/bzImage"
+
+      # ---------------------------------------------------------------
+      # Self-test: boot the kernel with a tiny initramfs and read the
+      # mitigation status from inside the guest.
+      # ---------------------------------------------------------------
+      - name: Build test initramfs
+        shell: bash
         run: |
-          cd linux-6.18.2
-          echo "=== Checking Firewall Symbols in System.map ==="
-          grep -E "iptable_filter_init|ipt_do_table" System.map || echo "WARNING: Firewall symbols NOT found in compiled kernel!"
+          set -euo pipefail
+          rm -rf initramfs
+          mkdir -p initramfs/bin initramfs/proc initramfs/sys initramfs/dev initramfs/tmp
 
-      - name: Package Output for Tiny Core
+          cp "$(command -v busybox)" initramfs/bin/busybox
+          chmod +x initramfs/bin/busybox
+
+          cat > initramfs/init <<'EOF'
+          #!/bin/busybox sh
+          /bin/busybox mount -t proc proc /proc
+          /bin/busybox mount -t sysfs sys /sys
+          /bin/busybox mount -t devtmpfs dev /dev
+          echo "=== AYHANOS BOOT SELF-TEST ==="
+          echo "--- /proc/cmdline ---"
+          /bin/busybox cat /proc/cmdline
+          echo "--- cpuinfo ssbd flag ---"
+          /bin/busybox grep -o 'ssbd' /proc/cpuinfo | /bin/busybox head -n1 || echo "ssbd flag: ABSENT"
+          echo "--- vulnerabilities ---"
+          for f in /sys/devices/system/cpu/vulnerabilities/*; do
+            printf '%s: ' "$(/bin/busybox basename "$f")"
+            /bin/busybox cat "$f"
+          done
+          echo "=== AYHANOS BOOT SELF-TEST END ==="
+          /bin/busybox poweroff -f
+          EOF
+          chmod +x initramfs/init
+
+          ( cd initramfs && find . | cpio -o -H newc 2>/dev/null | xz --check=crc32 > "$GITHUB_WORKSPACE/initramfs.cpio.xz" )
+
+      - name: Boot kernel in QEMU and verify mitigations
+        shell: bash
         run: |
-          cd linux-6.18.2
-          cp arch/x86/boot/bzImage ../vmlinuz-ultimate
-          
-          mkdir -p ../modules_out
-          make INSTALL_MOD_PATH=../modules_out modules_install
-          
-          KERNEL_VERSION=$(make kernelrelease)
-          echo "Kernel Version is: $KERNEL_VERSION"
-          
-          cd ../modules_out/lib/modules/$KERNEL_VERSION
-          find . -name "*.ko" -exec gzip -9 {} \;
-          ln -sf kernel kernel.tclocal
-          
-          cd ..
-          depmod -b ../.. $KERNEL_VERSION
-          
-          tar -czf ../../../../modules-ultimate.tar.gz -C $KERNEL_VERSION .
+          set -uo pipefail
 
-      - name: Upload Artifacts
+          KARGS="console=ttyS0 rdinit=/init spec_store_bypass_disable=on"
+
+          # The guest CPU must advertise SSBD (CPUID 7:EDX[31]).
+          # Without it the kernel reports "Vulnerable" no matter what the
+          # boot parameters say. -cpu max exposes the full TCG/HVF feature set.
+          if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+            echo "KVM available: using -cpu host"
+            CPU_ARGS=(-enable-kvm -cpu host)
+          else
+            echo "KVM unavailable: falling back to TCG with -cpu max,+ssbd"
+            CPU_ARGS=(-cpu max,+ssbd)
+          fi
+
+          timeout 600 qemu-system-x86_64 \
+            -m 2048 -smp 2 \
+            "${CPU_ARGS[@]}" \
+            -kernel bzImage \
+            -initrd initramfs.cpio.xz \
+            -append "$KARGS" \
+            -nographic -monitor none -no-reboot \
+            -serial file:serial.log || true
+
+          echo "=== Serial log ==="
+          cat serial.log
+
+          echo "=== Assertions ==="
+          fail=0
+
+          if ! grep -q 'AYHANOS BOOT SELF-TEST END' serial.log; then
+            echo "::error::The guest did not reach the end of the self-test."
+            fail=1
+          fi
+
+          SSB_LINE="$(grep -m1 '^spec_store_bypass: ' serial.log || true)"
+          echo "Guests reports: ${SSB_LINE:-<missing>}"
+
+          if echo "$SSB_LINE" | grep -q 'Vulnerable'; then
+            echo "::error::Guest reports spec_store_bypass as Vulnerable."
+            fail=1
+          fi
+
+          if ! grep -q 'ssbd flag' serial.log; then
+            echo "::warning::The guest CPU did not advertise the ssbd flag."
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            echo "=== Diagnostics from the source tree ==="
+            grep -nE 'config (CPU_MITIGATIONS|MITIGATION_|SPEC_STORE)' "$SRCDIR"/arch/x86/Kconfig || true
+            exit 1
+          fi
+
+          echo "All mitigation assertions passed."
+
+      - name: Upload kernel artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ayhanos-ultimate-kernel-v4
+          name: AyhanOS-kernel-${{ env.KVER }}
           path: |
-            vmlinuz-ultimate
-            modules-ultimate.tar.gz
+            bzImage
+            serial.log
