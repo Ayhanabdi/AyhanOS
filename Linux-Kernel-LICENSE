@@ -1,0 +1,19 @@
+Linux Kernel License Notice
+
+AyhanOS incorporates the Linux kernel, which is distributed under the terms of the GNU General Public License, version 2 only (GPL-2.0-only), subject to the applicable licensing terms and exceptions.
+
+The Linux kernel's original copyright notices, SPDX license identifiers, license files, and applicable exceptions must be preserved.
+
+This notice does not relicense the Linux kernel or any third-party components under GNU GPL version 3.
+
+For the authoritative licensing information, refer to the original Linux kernel source tree, particularly:
+
+- "COPYING"
+- "LICENSES/"
+- Individual source-file SPDX identifiers
+
+Official documentation:
+https://www.kernel.org/doc/html/latest/process/license-rules.html
+
+Project: AyhanOS
+Maintainer: AyhanDevloper
